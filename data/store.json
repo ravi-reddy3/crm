@@ -1,0 +1,199 @@
+{
+  "leads": [
+    {
+      "id": "lead-101",
+      "name": "Ava Thompson",
+      "company": "Northstar Retail",
+      "email": "ava@northstarretail.com",
+      "phone": "+1 (415) 555-0189",
+      "status": "qualified",
+      "source": "Website",
+      "owner": "Riya",
+      "estimatedValue": 48000,
+      "lastContact": "2026-04-20",
+      "tags": [
+        "priority",
+        "enterprise"
+      ],
+      "notes": "Asked for rollout plan and migration support."
+    },
+    {
+      "id": "lead-102",
+      "name": "Marcus Chen",
+      "company": "BluePeak Logistics",
+      "email": "marcus@bluepeaklogistics.com",
+      "phone": "+1 (312) 555-0170",
+      "status": "contacted",
+      "source": "Referral",
+      "owner": "Dev",
+      "estimatedValue": 18000,
+      "lastContact": "2026-04-18",
+      "tags": [
+        "logistics"
+      ],
+      "notes": "Interested in task automation and SLA reporting."
+    },
+    {
+      "id": "lead-103",
+      "name": "Sofia Patel",
+      "company": "Luma Health Studio",
+      "email": "sofia@lumahealthstudio.com",
+      "phone": "+1 (646) 555-0192",
+      "status": "proposal",
+      "source": "LinkedIn",
+      "owner": "Riya",
+      "estimatedValue": 32000,
+      "lastContact": "2026-04-21",
+      "tags": [
+        "upsell"
+      ],
+      "notes": "Needs contract review with legal before approval."
+    },
+    {
+      "id": "lead-104",
+      "name": "Noah Rivera",
+      "company": "Atlas Build Co.",
+      "email": "noah@atlasbuild.co",
+      "phone": "+1 (206) 555-0138",
+      "status": "new",
+      "source": "Campaign",
+      "owner": "Maya",
+      "estimatedValue": 22000,
+      "lastContact": "2026-04-22",
+      "tags": [
+        "inbound"
+      ],
+      "notes": "Fresh inbound from spring campaign."
+    },
+    {
+      "id": "lead-105",
+      "name": "Emma Brooks",
+      "company": "Horizon Advisory",
+      "email": "emma@horizonadvisory.com",
+      "phone": "+1 (917) 555-0114",
+      "status": "customer",
+      "source": "Conference",
+      "owner": "Maya",
+      "estimatedValue": 65000,
+      "lastContact": "2026-04-17",
+      "tags": [
+        "customer",
+        "expansion"
+      ],
+      "notes": "Existing customer evaluating a second workspace."
+    }
+  ],
+  "deals": [
+    {
+      "id": "deal-201",
+      "title": "Northstar Rollout",
+      "company": "Northstar Retail",
+      "owner": "Riya",
+      "stage": "proposal",
+      "value": 48000,
+      "health": "Strong",
+      "expectedClose": "2026-05-02"
+    },
+    {
+      "id": "deal-202",
+      "title": "BluePeak Workflow Suite",
+      "company": "BluePeak Logistics",
+      "owner": "Dev",
+      "stage": "discovery",
+      "value": 18000,
+      "health": "Warm",
+      "expectedClose": "2026-05-09"
+    },
+    {
+      "id": "deal-203",
+      "title": "Luma Expansion Plan",
+      "company": "Luma Health Studio",
+      "owner": "Riya",
+      "stage": "negotiation",
+      "value": 32000,
+      "health": "At Risk",
+      "expectedClose": "2026-04-30"
+    },
+    {
+      "id": "deal-204",
+      "title": "Horizon Advisory Renewals",
+      "company": "Horizon Advisory",
+      "owner": "Maya",
+      "stage": "closed-won",
+      "value": 65000,
+      "health": "Won",
+      "expectedClose": "2026-04-15"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-301",
+      "title": "Prepare Northstar pricing sheet",
+      "owner": "Riya",
+      "dueDate": "2026-04-24",
+      "completed": false,
+      "priority": "High"
+    },
+    {
+      "id": "task-302",
+      "title": "Send BluePeak discovery recap",
+      "owner": "Dev",
+      "dueDate": "2026-04-23",
+      "completed": false,
+      "priority": "Medium"
+    },
+    {
+      "id": "task-303",
+      "title": "Review Luma redlines",
+      "owner": "Riya",
+      "dueDate": "2026-04-25",
+      "completed": false,
+      "priority": "High"
+    },
+    {
+      "id": "task-304",
+      "title": "Check Atlas qualification notes",
+      "owner": "Maya",
+      "dueDate": "2026-04-26",
+      "completed": true,
+      "priority": "Low"
+    }
+  ],
+  "activities": [
+    {
+      "id": "activity-vsidz52y",
+      "createdAt": "2026-04-22T16:27:36.663Z",
+      "type": "task",
+      "title": "Send BluePeak discovery recap marked active",
+      "detail": "Dev updated the task state."
+    },
+    {
+      "id": "activity-wanm2dkp",
+      "createdAt": "2026-04-22T16:27:34.654Z",
+      "type": "task",
+      "title": "Send BluePeak discovery recap marked complete",
+      "detail": "Dev updated the task state."
+    },
+    {
+      "id": "activity-401",
+      "type": "deal",
+      "title": "Northstar Rollout moved to proposal",
+      "detail": "Riya updated the deal after the stakeholder review.",
+      "createdAt": "2026-04-22T09:20:00.000Z"
+    },
+    {
+      "id": "activity-402",
+      "type": "lead",
+      "title": "Atlas Build Co. added as a new inbound lead",
+      "detail": "Lead source recorded from spring campaign form.",
+      "createdAt": "2026-04-22T08:05:00.000Z"
+    },
+    {
+      "id": "activity-403",
+      "type": "task",
+      "title": "BluePeak discovery recap scheduled",
+      "detail": "Task assigned to Dev for follow-up email.",
+      "createdAt": "2026-04-21T16:15:00.000Z"
+    }
+  ]
+}
