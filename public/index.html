@@ -3,39 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Unicus Learning CRM</title>
+  <title>Unicus Admissions CRM</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="page-shell">
+  
+  <div id="loginView" class="login-container" style="display: none;">
+    <div class="card mini-form" style="max-width: 400px; margin: 100px auto; padding: 40px;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <img src="images/logo.svg" alt="Logo" style="width: 120px; margin-bottom: 10px;">
+        <h2>Staff Login</h2>
+      </div>
+      <form id="loginForm">
+        <input name="username" placeholder="Username" required>
+        <input name="password" type="password" placeholder="Password" required>
+        <button type="submit" style="width: 100%; margin-top: 10px;">Log In</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="appView" class="page-shell" style="display: none;">
     <aside class="sidebar card">
       <div class="brand-block">
         <img src="images/logo.svg" alt="Unicus Learning Logo" class="brand-logo">
         <div class="brand-text">
-          <!-- <p class="eyebrow">Admissions Hub</p> -->
+          <p class="eyebrow">Admissions Hub</p>
           <h1>Unicus Learning</h1>
         </div>
       </div>
-
-      <p class="sidebar-copy">
-        Manage prospective students, track batch enrollments, and stay on top of counselor follow-ups.
-      </p>
 
       <nav class="nav-list" aria-label="Primary">
         <a href="/" data-route="home">Dashboard</a>
         <a href="/inquiries" data-route="inquiries">Inquiries</a>
         <a href="/enrollments" data-route="enrollments">Enrollments</a>
-        <a href="/tasks" data-route="tasks">Follow-ups</a>
+        <a href="/tasks" data-route="tasks">Follow-ups</a> <a href="/permissions" data-route="permissions" id="navPermissions"
+          style="display: none;">Staff Access</a>
       </nav>
 
-      <div class="sidebar-panel">
-        <p class="panel-label">What’s included</p>
-        <ul>
-          <li>Upload student data via Excel</li>
-          <li>Track demo attendance & conversions</li>
-          <li>Manage pending fees</li>
-          <li>Counselor activity feed</li>
-        </ul>
+      <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--line);">
+        <p class="muted-copy">Logged in as: <strong id="currentUserLabel">...</strong></p>
+        <button id="logoutBtn" style="background: transparent; color: var(--muted); border: 1px solid var(--line); width: 100%; margin-top: 10px;">Log Out</button>
       </div>
     </aside>
 
@@ -44,11 +51,8 @@
         <div>
           <p class="eyebrow" id="pageEyebrow">Admissions CRM</p>
           <h2 id="pageTitle">Manage students, track enrollments, and coordinate batches.</h2>
-          <p class="hero-copy" id="pageDescription">
-            Keep your counselor workflows visible and your student pipeline organized.
-          </p>
+          <p class="hero-copy" id="pageDescription">Keep your counselor workflows visible and your student pipeline organized.</p>
         </div>
-
         <div class="hero-badge">
           <span>Live Workspace</span>
           <strong id="heroDate">Today</strong>
@@ -56,13 +60,11 @@
       </section>
 
       <section class="stats-grid" id="metricGrid"></section>
-
       <section id="viewRoot" class="view-root" aria-live="polite"></section>
     </main>
   </div>
 
   <div id="toast" class="toast" aria-live="polite"></div>
-
   <script src="app.js"></script>
 </body>
 </html>

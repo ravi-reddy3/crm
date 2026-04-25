@@ -1,9 +1,10 @@
+let currentUser = null;
+const loginView = document.getElementById('loginView');
+const appView = document.getElementById('appView');
+const navPermissions = document.getElementById('navPermissions');
+
 const state = {
-  crm: null,
-  route: getRouteFromPath(window.location.pathname),
-  search: '',
-  statusFilter: 'all',
-  spreadsheetModule: null
+  crm: null, staff: [], route: getRouteFromPath(window.location.pathname), search: '', statusFilter: 'all', spreadsheetModule: null
 };
 
 const metricGrid = document.getElementById('metricGrid');
@@ -15,250 +16,100 @@ const pageTitle = document.getElementById('pageTitle');
 const pageDescription = document.getElementById('pageDescription');
 const navList = document.querySelector('.nav-list');
 
-const moneyFormatter = new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
-  maximumFractionDigits: 0
-});
-
+const moneyFormatter = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 const dateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
 const routeMeta = {
-  home: {
-    path: '/',
-    eyebrow: 'Admissions Hub',
-    title: 'Manage students, track enrollments, and coordinate batches.',
-    description: 'Keep your counselor workflows visible and your student pipeline organized.'
-  },
-  inquiries: {
-    path: '/inquiries',
-    eyebrow: 'Prospective Students',
-    title: 'Track inquiries, filter the list, and import spreadsheets.',
-    description: 'Upload an Excel file to add student leads quickly, and keep demo status organized.'
-  },
-  enrollments: {
-    path: '/enrollments',
-    eyebrow: 'Active Batches',
-    title: 'Move students through the enrollment pipeline.',
-    description: 'Review fee collection, update progress, and create new batch opportunities.'
-  },
-  tasks: {
-    path: '/tasks',
-    eyebrow: 'Execution',
-    title: 'Keep counselor follow-ups visible with a task queue.',
-    description: 'Track call completion, add new work items, and review recent team activity.'
-  }
+  home: { path: '/', eyebrow: 'Admissions Hub', title: 'Manage students, track enrollments, and coordinate batches.', description: 'Keep your workflows visible.' },
+  inquiries: { path: '/inquiries', eyebrow: 'Prospective Students', title: 'Track inquiries, filter the list, and import spreadsheets.', description: 'Upload Excel files to add student leads quickly.' },
+  enrollments: { path: '/enrollments', eyebrow: 'Active Batches', title: 'Move students through the enrollment pipeline.', description: 'Review fee collection, update progress, and create batches.' },
+  tasks: { path: '/tasks', eyebrow: 'Execution', title: 'Keep counselor follow-ups visible with a task queue.', description: 'Track task completion and review recent team activity.' },
+  permissions: { path: '/permissions', eyebrow: 'Admin Control', title: 'Manage Staff Access and Roles', description: 'Create accounts to restrict data access.' }
 };
 
-const stageLabels = {
-  'inquiry': 'New Inquiry',
-  'demo': 'Attended Demo',
-  'payment-pending': 'Payment Pending',
-  'enrolled': 'Enrolled',
-  'dropped': 'Dropped'
-};
+const stageLabels = { 'inquiry': 'New Inquiry', 'demo': 'Attended Demo', 'payment-pending': 'Payment Pending', 'enrolled': 'Enrolled', 'dropped': 'Dropped' };
 
 function getRouteFromPath(pathname) {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  if (normalized === '/' || normalized === '/index.html') return 'home';
   if (normalized === '/inquiries') return 'inquiries';
   if (normalized === '/enrollments') return 'enrollments';
   if (normalized === '/tasks') return 'tasks';
+  if (normalized === '/permissions') return 'permissions';
   return 'home';
 }
 
 function showToast(message, isError = false) {
-  toast.textContent = message;
-  toast.className = `toast visible ${isError ? 'error' : ''}`;
+  toast.textContent = message; toast.className = `toast visible ${isError ? 'error' : ''}`;
   window.clearTimeout(showToast.timeoutId);
   showToast.timeoutId = window.setTimeout(() => { toast.className = 'toast'; }, 2600);
 }
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function formatMoney(value) {
-  return moneyFormatter.format(Number(value || 0));
-}
-
+function escapeHtml(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function formatMoney(value) { return moneyFormatter.format(Number(value || 0)); }
 function formatDate(value) {
   if (!value) return 'No date';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : dateFormatter.format(date);
+  const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : dateFormatter.format(date);
 }
 
-function normalizeStatus(status) {
-  const normalized = String(status || '').trim().toLowerCase();
-  return ['new', 'contacted', 'attended-demo', 'enrolled'].includes(normalized) ? normalized : 'new';
+async function request(path, options = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
 }
 
-function sanitizeNumeric(value) {
-  const cleaned = String(value ?? '').replace(/[^0-9.-]/g, '');
-  const number = Number(cleaned);
-  return Number.isFinite(number) ? number : 0;
+// --- AUTH LOGIC ---
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) throw new Error('Not logged in');
+    const data = await res.json();
+    currentUser = data.user;
+    
+    document.getElementById('currentUserLabel').textContent = `${currentUser.username} (${currentUser.role})`;
+    navPermissions.style.display = currentUser.role === 'admin' ? 'block' : 'none';
+    
+    loginView.style.display = 'none'; appView.style.display = 'grid';
+    loadCRM(); 
+  } catch (err) { loginView.style.display = 'block'; appView.style.display = 'none'; }
 }
 
-function metricCardsForRoute() {
-  if (!state.crm) return [];
-  const dashboard = state.crm.dashboard;
-  const openTasks = state.crm.tasks.filter((task) => !task.completed).length;
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try { await request('/api/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) }); await checkAuth(); } 
+  catch (err) { showToast(err.message, true); }
+});
 
-  if (state.route === 'inquiries') {
-    return [
-      { label: 'Total Inquiries', value: dashboard.totalContacts, detail: 'Tracked prospects' },
-      { label: 'New', value: dashboard.leadsByStatus.find((i) => i.status === 'new')?.count || 0, detail: 'Fresh leads' },
-      { label: 'Attended Demo', value: dashboard.leadsByStatus.find((i) => i.status === 'attended-demo')?.count || 0, detail: 'Ready to convert' },
-      { label: 'Enrolled', value: dashboard.leadsByStatus.find((i) => i.status === 'enrolled')?.count || 0, detail: 'Successfully admitted' }
-    ];
-  }
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' }); window.location.reload();
+});
 
-  if (state.route === 'enrollments') {
-    return [
-      { label: 'Active Pipeline', value: dashboard.activeDeals, detail: 'Students in funnel' },
-      { label: 'Pending Fees', value: formatMoney(dashboard.pipelineValue), detail: 'Expected revenue' },
-      { label: 'Completed Enrollments', value: dashboard.wonDeals, detail: 'Registered students' },
-      { label: 'Conversion Rate', value: `${dashboard.conversionRate}%`, detail: 'Overall success' }
-    ];
-  }
-
-  return [
-    { label: 'Total Inquiries', value: dashboard.totalContacts, detail: 'Prospects tracked' },
-    { label: 'Active Funnel', value: dashboard.activeDeals, detail: `${dashboard.conversionRate}% conversion rate` },
-    { label: 'Expected Fees', value: formatMoney(dashboard.pipelineValue), detail: `${dashboard.wonDeals} enrolled` },
-    { label: 'Follow-ups', value: openTasks, detail: 'Tasks pending' }
-  ];
-}
-
+// --- RENDER LOGIC ---
 function renderMetrics() {
-  if (!state.crm) {
-    metricGrid.innerHTML = '';
-    return;
-  }
-  metricGrid.innerHTML = metricCardsForRoute().map((card) => `
-    <article class="metric-card card">
-      <p>${escapeHtml(card.label)}</p>
-      <strong>${escapeHtml(card.value)}</strong>
-      <span>${escapeHtml(card.detail)}</span>
-    </article>
-  `).join('');
+  if (!state.crm) { metricGrid.innerHTML = ''; return; }
+  const d = state.crm.dashboard;
+  const cards = [
+    { label: 'Total Inquiries', value: d.totalContacts, detail: 'Prospects tracked' },
+    { label: 'Active Funnel', value: d.activeDeals, detail: `${d.conversionRate}% conversion rate` },
+    { label: 'Expected Fees', value: formatMoney(d.pipelineValue), detail: `${d.wonDeals} enrolled` },
+    { label: 'Open Tasks', value: state.crm.tasks.filter(t => !t.completed).length, detail: 'Follow-ups pending' }
+  ];
+  metricGrid.innerHTML = cards.map(c => `<article class="metric-card card"><p>${escapeHtml(c.label)}</p><strong>${escapeHtml(c.value)}</strong><span>${escapeHtml(c.detail)}</span></article>`).join('');
 }
 
-function renderStudentsTable() {
-  const students = state.crm.students.filter((student) => {
-    const matchesStatus = state.statusFilter === 'all' || student.status === state.statusFilter;
-    const haystack = `${student.name} ${student.course_of_interest} ${student.counselor} ${student.email}`.toLowerCase();
-    return matchesStatus && haystack.includes(state.search.toLowerCase());
-  });
-
-  if (!students.length) return `<div class="empty-panel">No students match current filters.</div>`;
-
-  return `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Student</th>
-            <th>Stage</th>
-            <th>Expected Fee</th>
-            <th>Counselor</th>
-            <th>Last Contact</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${students.map((student) => `
-            <tr>
-              <td>
-                <div class="lead-primary">
-                  <strong>${escapeHtml(student.name)}</strong>
-                  <span>${escapeHtml(student.course_of_interest)}</span>
-                  <small>${escapeHtml(student.email || student.phone || student.background || 'No details')}</small>
-                </div>
-              </td>
-              <td>
-                <select class="inline-select student-select" data-id="${escapeHtml(student.id)}">
-                  ${['new', 'contacted', 'attended-demo', 'enrolled'].map((status) => `
-                    <option value="${status}" ${student.status === status ? 'selected' : ''}>${status.replace('-', ' ')}</option>
-                  `).join('')}
-                </select>
-              </td>
-              <td>${escapeHtml(formatMoney(student.expected_fee))}</td>
-              <td>${escapeHtml(student.counselor)}</td>
-              <td>${escapeHtml(formatDate(student.last_contact))}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderEnrollmentsBoard() {
-  if (!state.crm) return '';
-  const stages = ['inquiry', 'demo', 'payment-pending', 'enrolled', 'dropped'];
-
-  return stages.map((stage) => {
-    const enrollments = state.crm.enrollments.filter((e) => e.stage === stage);
-    return `
-      <section class="pipeline-column">
-        <div class="pipeline-head">
-          <h4>${escapeHtml(stageLabels[stage])}</h4>
-          <span>${enrollments.length}</span>
-        </div>
-        <div class="pipeline-list">
-          ${enrollments.length ? enrollments.map((enrollment) => `
-            <article class="deal-card">
-              <div class="deal-topline">
-                <strong>${escapeHtml(enrollment.student_name)}</strong>
-                <span>${escapeHtml(formatMoney(enrollment.fee_collected))}</span>
-              </div>
-              <p>${escapeHtml(enrollment.course_name)}</p>
-              <div class="deal-meta">
-                <span>${escapeHtml(enrollment.counselor)}</span>
-              </div>
-              <div class="deal-footer">
-                <small>Batch: ${escapeHtml(formatDate(enrollment.batch_start_date))}</small>
-                <select class="inline-select enrollment-select" data-id="${escapeHtml(enrollment.id)}">
-                  ${Object.entries(stageLabels).map(([value, label]) => `
-                    <option value="${value}" ${enrollment.stage === value ? 'selected' : ''}>${label}</option>
-                  `).join('')}
-                </select>
-              </div>
-            </article>
-          `).join('') : '<div class="empty-panel">No students.</div>'}
-        </div>
-      </section>
-    `;
-  }).join('');
-}
-
-function renderTasksList() {
-  if (!state.crm?.tasks.length) return '<div class="empty-panel">No tasks yet.</div>';
-  return state.crm.tasks.map((task) => `
-    <label class="task-item ${task.completed ? 'done' : ''}">
-      <input type="checkbox" data-task-id="${escapeHtml(task.id)}" ${task.completed ? 'checked' : ''}>
-      <div>
-        <strong>${escapeHtml(task.title)}</strong>
-        <p>${escapeHtml(task.owner)} • due ${escapeHtml(formatDate(task.due_date))}</p>
-      </div>
-    </label>
-  `).join('');
+// Helper to generate a dropdown from the database
+function renderStaffDropdown(fieldName, placeholder) {
+  const options = state.staff.map(s => `<option value="${escapeHtml(s.username)}">${escapeHtml(s.username)} (${escapeHtml(s.role)})</option>`).join('');
+  return `<select name="${fieldName}" required><option value="">${placeholder}</option>${options}</select>`;
 }
 
 function renderActivityFeed() {
   if (!state.crm?.activities.length) return '<div class="empty-panel">No activity yet.</div>';
   
-  const feedHtml = state.crm.activities.map((activity) => `
-    <article class="activity-item">
-      <span class="activity-type">${escapeHtml(activity.type)}</span>
-      <strong>${escapeHtml(activity.title)}</strong>
-      <p>${escapeHtml(activity.detail)}</p>
-      <small>${escapeHtml(new Date(activity.created_at).toLocaleString())}</small>
-    </article>
-  `).join('');
+  const feedHtml = state.crm.activities.map((a) => `<article class="activity-item"><span class="activity-type">${escapeHtml(a.type)}</span><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.detail)}</p><small>${escapeHtml(new Date(a.created_at).toLocaleString())}</small></article>`).join('');
 
-  // Calculate pagination details
-  const totalPages = Math.ceil(state.crm.activitiesTotal / 10) || 1;
+  // Pagination Logic (6 items per page)
+  const totalPages = Math.ceil(state.crm.activitiesTotal / 6) || 1;
   const currentPage = state.crm.activityPage || 1;
 
   const paginationHtml = `
@@ -273,285 +124,206 @@ function renderActivityFeed() {
 }
 
 function renderHomeView() {
-  return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card section-card">
-          <div class="section-head">
-            <div><p class="eyebrow">Overview</p><h3>Admissions Snapshot</h3></div>
-          </div>
-          <div class="summary-grid">
-            ${state.crm.dashboard.leadsByStatus.map((entry) => `
-              <article class="summary-card">
-                <span>${escapeHtml(entry.status.replace('-', ' '))}</span>
-                <strong>${escapeHtml(entry.count)}</strong>
-              </article>
-            `).join('')}
-          </div>
-          <div class="home-actions">
-            <button type="button" data-navigate="inquiries">Open Inquiries</button>
-            <button type="button" data-navigate="enrollments">Open Pipeline</button>
-          </div>
-        </section>
-      </div>
-      <div class="right-stack">
-        <section class="card section-card">
-          <div class="section-head"><div><p class="eyebrow">Activity</p><h3>Recent updates</h3></div></div>
-          <div class="activity-feed">${renderActivityFeed()}</div>
-        </section>
-      </div>
-    </section>
-  `;
+  return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Admissions Snapshot</h3></div><div class="summary-grid">${state.crm.dashboard.leadsByStatus.map(e => `<article class="summary-card"><span>${escapeHtml(e.status.replace('-', ' '))}</span><strong>${escapeHtml(e.count)}</strong></article>`).join('')}</div></section></div><div class="right-stack"><section class="card section-card"><div class="section-head"><h3>Recent Updates</h3></div><div class="activity-feed">${renderActivityFeed()}</div></section></div></section>`;
 }
 
 function renderStudentsView() {
-  return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card section-card">
-          <div class="section-head">
-            <div><p class="eyebrow">Inquiries</p><h3>Student Tracker</h3></div>
-            <div class="section-controls">
-              <input id="studentSearch" type="search" placeholder="Search name, course..." value="${escapeHtml(state.search)}">
-              <select id="studentStatusFilter">
-                <option value="all" ${state.statusFilter === 'all' ? 'selected' : ''}>All stages</option>
-                <option value="new" ${state.statusFilter === 'new' ? 'selected' : ''}>New</option>
-                <option value="contacted" ${state.statusFilter === 'contacted' ? 'selected' : ''}>Contacted</option>
-                <option value="attended-demo" ${state.statusFilter === 'attended-demo' ? 'selected' : ''}>Attended Demo</option>
-                <option value="enrolled" ${state.statusFilter === 'enrolled' ? 'selected' : ''}>Enrolled</option>
-              </select>
-            </div>
-          </div>
-          ${renderStudentsTable()}
-        </section>
-      </div>
-      <div class="right-stack">
-        <section class="card section-card forms-card">
-          <div class="section-head">
-            <div><p class="eyebrow">Import</p><h3>Upload Spreadsheet</h3></div>
-          </div>
-          <form id="importForm" class="mini-form import-form">
-            <p class="muted-copy">Use columns like Name, Course, Email, Phone, Background, and Counselor.</p>
-            <input id="importFile" name="file" type="file" accept=".xlsx,.xls,.csv" required>
-            <button type="submit">Import Students</button>
-          </form>
-        </section>
-        <section class="card section-card forms-card">
-          <div class="section-head"><div><p class="eyebrow">Capture</p><h3>Add Manual Inquiry</h3></div></div>
-          <form id="studentForm" class="mini-form">
-            <input name="name" placeholder="Student name" required>
-            <input name="course_of_interest" placeholder="Course (e.g., Data Science)" required>
-            <div class="field-row"><input name="email" type="email" placeholder="Email"><input name="phone" placeholder="Phone"></div>
-            <div class="field-row">
-              <select name="status">
-                <option value="new">New</option><option value="contacted">Contacted</option>
-                <option value="attended-demo">Attended Demo</option><option value="enrolled">Enrolled</option>
-              </select>
-              <input name="expected_fee" type="number" placeholder="Expected Fee">
-            </div>
-            <input name="counselor" placeholder="Counselor">
-            <textarea name="background" rows="2" placeholder="Background/Education"></textarea>
-            <button type="submit">Add Student</button>
-          </form>
-        </section>
-      </div>
-    </section>
-  `;
+  const students = state.crm.students.filter(s => (state.statusFilter === 'all' || s.status === state.statusFilter) && `${s.name} ${s.course_of_interest}`.toLowerCase().includes(state.search.toLowerCase()));
+  const table = `<div class="table-wrap"><table><thead><tr><th>Student</th><th>Stage</th><th>Counselor</th><th>Last Contact</th></tr></thead><tbody>${students.map(s => `<tr><td><strong>${escapeHtml(s.name)}</strong><br><small>${escapeHtml(s.course_of_interest)}</small></td><td><select class="inline-select student-select" data-id="${escapeHtml(s.id)}">${['new', 'contacted', 'attended-demo', 'enrolled'].map(status => `<option value="${status}" ${s.status === status ? 'selected' : ''}>${status.replace('-', ' ')}</option>`).join('')}</select></td><td>${escapeHtml(s.counselor)}</td><td>${escapeHtml(formatDate(s.last_contact))}</td></tr>`).join('')}</tbody></table></div>`;
+  
+  // Conditionally render the counselor dropdown (Counselors auto-assign to themselves)
+  const counselorInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('counselor', 'Assign to Counselor...');
+
+  return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Student Tracker</h3><input id="studentSearch" type="search" placeholder="Search..." value="${escapeHtml(state.search)}"></div>${table}</section></div><div class="right-stack"><section class="card section-card forms-card"><div class="section-head"><h3>Import Spreadsheet</h3></div><form id="importForm" class="mini-form"><input id="importFile" type="file" accept=".xlsx,.xls,.csv" required><button type="submit">Import</button></form></section><section class="card section-card forms-card"><div class="section-head"><h3>Add Inquiry</h3></div><form id="studentForm" class="mini-form"><input name="name" placeholder="Student name" required><input name="course_of_interest" placeholder="Course" required><input name="email" placeholder="Email"><input name="phone" placeholder="Phone"><input name="expected_fee" type="number" placeholder="Expected Fee">${counselorInput}<button type="submit">Add Student</button></form></section></div></section>`;
 }
 
 function renderEnrollmentsView() {
-  return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card section-card">
-          <div class="section-head">
-            <div><p class="eyebrow">Revenue</p><h3>Enrollment Board</h3></div>
-          </div>
-          <div class="pipeline-board">${renderEnrollmentsBoard()}</div>
-        </section>
-      </div>
-      <div class="right-stack">
-        <section class="card section-card forms-card">
-          <div class="section-head"><div><p class="eyebrow">Add</p><h3>Create Pipeline Entry</h3></div></div>
-          <form id="enrollmentForm" class="mini-form">
-            <input name="student_name" placeholder="Student name" required>
-            <input name="course_name" placeholder="Course" required>
-            <div class="field-row"><input name="counselor" placeholder="Counselor"><input name="fee_collected" type="number" placeholder="Fee"></div>
-            <select name="stage">
-              <option value="inquiry">Inquiry</option><option value="demo">Attended Demo</option>
-              <option value="payment-pending">Payment Pending</option><option value="enrolled">Enrolled</option>
-            </select>
-            <button type="submit">Track Enrollment</button>
-          </form>
-        </section>
-      </div>
-    </section>
-  `;
+  const board = ['inquiry', 'demo', 'payment-pending', 'enrolled', 'dropped'].map(stage => `<section class="pipeline-column"><div class="pipeline-head"><h4>${escapeHtml(stageLabels[stage])}</h4></div><div class="pipeline-list">${state.crm.enrollments.filter(e => e.stage === stage).map(e => `<article class="deal-card"><div class="deal-topline"><strong>${escapeHtml(e.student_name)}</strong><span>${escapeHtml(formatMoney(e.fee_collected))}</span></div><p>${escapeHtml(e.course_name)}</p><div class="deal-meta"><span>${escapeHtml(e.counselor)}</span></div><div class="deal-footer"><select class="inline-select enrollment-select" data-id="${escapeHtml(e.id)}">${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${e.stage === val ? 'selected' : ''}>${lbl}</option>`).join('')}</select></div></article>`).join('')}</div></section>`).join('');
+  
+  const counselorInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('counselor', 'Assign to Counselor...');
+
+  return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="pipeline-board">${board}</div></section></div><div class="right-stack"><section class="card section-card forms-card"><div class="section-head"><h3>Add Enrollment</h3></div><form id="enrollmentForm" class="mini-form"><input name="student_name" placeholder="Student name" required><input name="course_name" placeholder="Course" required>${counselorInput}<input name="fee_collected" type="number" placeholder="Fee Collected"><button type="submit">Track Enrollment</button></form></section></div></section>`;
 }
 
 function renderTasksView() {
-  return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card split-card">
-          <div class="section-card inner-card">
-            <div class="section-head"><div><p class="eyebrow">Execution</p><h3>Tasks</h3></div></div>
-            <div class="task-list">${renderTasksList()}</div>
-          </div>
-          <div class="section-card inner-card">
-            <div class="section-head"><div><p class="eyebrow">Activity</p><h3>Recent updates</h3></div></div>
-            <div class="activity-feed">${renderActivityFeed()}</div>
-          </div>
-        </section>
-      </div>
-      <div class="right-stack">
-        <section class="card section-card forms-card">
-          <div class="section-head"><div><p class="eyebrow">Capture</p><h3>Add follow-up</h3></div></div>
-          <form id="taskForm" class="mini-form">
-            <input name="title" placeholder="Call student regarding fee..." required>
-            <div class="field-row"><input name="owner" placeholder="Counselor"><input name="due_date" type="date"></div>
-            <button type="submit">Add Task</button>
-          </form>
-        </section>
-      </div>
-    </section>
-  `;
+  const list = state.crm.tasks.length ? state.crm.tasks.map(t => `<label class="task-item ${t.completed ? 'done' : ''}"><input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''}><div><strong>${escapeHtml(t.title)}</strong><p>${escapeHtml(t.owner)} • due ${escapeHtml(formatDate(t.due_date))}</p></div></label>`).join('') : '<div class="empty-panel">No tasks.</div>';
+  
+  // REQUIREMENT 3: Task assignment hidden for counselors
+  const ownerInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('owner', 'Assign Task To...');
+
+  return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Tasks</h3></div><div class="task-list">${list}</div></section></div><div class="right-stack"><section class="card section-card forms-card"><div class="section-head"><h3>Add Task</h3></div><form id="taskForm" class="mini-form">
+    <input name="title" placeholder="Call student regarding fee..." required>
+    ${ownerInput}
+    <input name="due_date" type="date" required title="Select Due Date">
+    <button type="submit">Add Task</button>
+  </form></section></div></section>`;
 }
 
-function renderView() {
-  if (!state.crm) { viewRoot.innerHTML = '<section class="card section-card"><div class="empty-panel">Loading...</div></section>'; return; }
-  if (state.route === 'inquiries') return viewRoot.innerHTML = renderStudentsView();
-  if (state.route === 'enrollments') return viewRoot.innerHTML = renderEnrollmentsView();
-  if (state.route === 'tasks') return viewRoot.innerHTML = renderTasksView();
-  viewRoot.innerHTML = renderHomeView();
+// --- REPLACE THIS FUNCTION IN app.js ---
+
+async function renderPermissionsView() {
+  if (currentUser.role !== 'admin') return '<div class="empty-panel">Access Denied</div>';
+  const users = await request('/api/users');
+  
+  // Notice the new Action column and the Delete button below
+  return `<section class="content-grid">
+    <div class="left-stack">
+      <section class="card section-card">
+        <div class="section-head"><h3>Staff Accounts</h3></div>
+        <table>
+          <thead>
+            <tr><th>Username</th><th>Role</th><th style="width: 80px;">Action</th></tr>
+          </thead>
+          <tbody>
+            ${users.map(u => `
+              <tr>
+                <td>${escapeHtml(u.username)}</td>
+                <td style="text-transform: capitalize;">${escapeHtml(u.role)}</td>
+                <td>
+                  ${u.username !== currentUser.username 
+                    ? `<button type="button" class="user-delete-btn" data-id="${escapeHtml(u.id)}" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">Delete</button>` 
+                    : '<span style="color: var(--muted); font-size: 0.85rem;">(You)</span>'}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </section>
+    </div>
+    <div class="right-stack">
+      <section class="card section-card forms-card">
+        <div class="section-head"><h3>Add Staff</h3></div>
+        <form id="newUserForm" class="mini-form">
+          <input name="username" placeholder="Username" required>
+          <input name="password" type="password" placeholder="Password" required>
+          <select name="role">
+            <option value="counselor">Counselor</option>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button type="submit">Create User</button>
+        </form>
+      </section>
+    </div>
+  </section>`;
+}
+
+async function renderView() {
+  if (!state.crm) return;
+  if (state.route === 'inquiries') viewRoot.innerHTML = renderStudentsView();
+  else if (state.route === 'enrollments') viewRoot.innerHTML = renderEnrollmentsView();
+  else if (state.route === 'tasks') viewRoot.innerHTML = renderTasksView();
+  else if (state.route === 'permissions') viewRoot.innerHTML = await renderPermissionsView();
+  else viewRoot.innerHTML = renderHomeView();
 }
 
 function updatePageMeta() {
-  const meta = routeMeta[state.route];
+  const meta = routeMeta[state.route] || routeMeta.home;
   pageEyebrow.textContent = meta.eyebrow; pageTitle.textContent = meta.title; pageDescription.textContent = meta.description;
-  navList.querySelectorAll('[data-route]').forEach((link) => { link.classList.toggle('active', link.dataset.route === state.route); });
+  navList.querySelectorAll('[data-route]').forEach(link => link.classList.toggle('active', link.dataset.route === state.route));
 }
 
 function renderApp() { updatePageMeta(); renderMetrics(); renderView(); }
 
-async function request(path, options = {}) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
-  return data;
+async function loadCRM() { 
+  try { 
+    state.crm = await request('/api/crm'); 
+    state.staff = await request('/api/staff'); // Fetch the dropdown data
+    renderApp(); 
+  } catch (err) { showToast(err.message, true); } 
 }
 
-async function loadCRM() {
-  try { state.crm = await request('/api/crm'); renderApp(); } 
-  catch (err) { showToast(err.message, true); }
-}
+navList.addEventListener('click', (e) => {
+  const link = e.target.closest('[data-route]');
+  if (link) { e.preventDefault(); state.route = link.dataset.route; window.history.pushState({}, '', link.href); renderApp(); }
+});
 
-async function submitForm(event, path) {
-  event.preventDefault();
+window.addEventListener('popstate', () => { state.route = getRouteFromPath(window.location.pathname); renderApp(); });
+
+viewRoot.addEventListener('input', (e) => { if (e.target.id === 'studentSearch') { state.search = e.target.value; renderView(); } });
+
+// --- DATA ENTRY HANDLERS ---
+async function submitDataForm(e, url) {
+  e.preventDefault();
   try {
-    state.crm = await request(path, { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(event.target))) });
-    event.target.reset(); renderApp(); showToast('Saved successfully.');
+    await request(url, { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) });
+    e.target.reset(); await loadCRM(); showToast('Saved');
   } catch (err) { showToast(err.message, true); }
 }
 
 async function updateState(path, payload) {
-  try { state.crm = await request(path, { method: 'PATCH', body: JSON.stringify(payload) }); renderApp(); } 
+  try { await request(path, { method: 'PATCH', body: JSON.stringify(payload) }); await loadCRM(); } 
   catch (err) { showToast(err.message, true); }
 }
 
-function navigate(route) {
-  if (!routeMeta[route]) return;
-  state.route = route; window.history.pushState({}, '', routeMeta[route].path); renderApp();
-}
-
-function pickField(row, aliases) {
-  const norm = Object.entries(row).map(([k, v]) => [k.trim().toLowerCase(), v]);
-  for (const alias of aliases) {
-    const match = norm.find(([k]) => k === alias);
-    if (match && String(match[1] || '').trim()) return String(match[1]).trim();
-  }
-  return '';
-}
-
-async function importStudentsFromFile(file) {
-  if (!state.spreadsheetModule) state.spreadsheetModule = await import('/vendor/xlsx/xlsx.mjs');
-  const XLSX = state.spreadsheetModule;
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-  if (!workbook.SheetNames[0]) throw new Error('No sheets found.');
-  
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '', raw: false });
-  const students = rows.map(row => {
-    const name = pickField(row, ['name', 'student name', 'full name', 'lead name']);
-    const course_of_interest = pickField(row, ['course', 'course of interest', 'program', 'interested in']);
-    if (!name || !course_of_interest) return null;
-    return {
-      name, course_of_interest,
-      email: pickField(row, ['email', 'mail']),
-      phone: pickField(row, ['phone', 'mobile', 'whatsapp']),
-      status: normalizeStatus(pickField(row, ['status', 'stage'])),
-      source: pickField(row, ['source', 'campaign']),
-      counselor: pickField(row, ['counselor', 'assigned to', 'owner']),
-      expected_fee: sanitizeNumeric(pickField(row, ['fee', 'expected fee', 'amount'])),
-      background: pickField(row, ['background', 'education', 'profession']),
-      notes: pickField(row, ['notes', 'comments', 'remarks'])
-    };
-  }).filter(Boolean);
-
-  if (!students.length) throw new Error('No valid records found. Include Name and Course columns.');
-  state.crm = await request('/api/students/import', { method: 'POST', body: JSON.stringify({ students }) });
-  state.search = ''; state.statusFilter = 'all'; renderApp(); showToast(`${students.length} imported.`);
-}
-
-viewRoot.addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-navigate]');
-  if (btn) navigate(btn.dataset.navigate);
-
-  // NEW: Handle activity pagination clicks
-  const pageBtn = e.target.closest('.btn-page');
-  if (pageBtn && !pageBtn.disabled) {
-    const newPage = parseInt(pageBtn.dataset.page);
-    try {
-      // Fetch just the new activities
-      const data = await request(`/api/activities?page=${newPage}`);
-      // Update state and re-render
-      state.crm.activities = data.activities;
-      state.crm.activitiesTotal = data.activitiesTotal;
-      state.crm.activityPage = data.activityPage;
-      renderApp(); 
-    } catch (err) {
-      showToast(err.message, true);
-    }
-  }
-});
-
-window.addEventListener('popstate', () => { state.route = getRouteFromPath(window.location.pathname); renderApp(); });
-viewRoot.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-navigate]');
-  if (btn) navigate(btn.dataset.navigate);
-});
-
-viewRoot.addEventListener('input', (e) => {
-  if (e.target.id === 'studentSearch') { state.search = e.target.value; renderView(); }
-});
-
 viewRoot.addEventListener('change', (e) => {
-  if (e.target.id === 'studentStatusFilter') { state.statusFilter = e.target.value; return renderView(); }
   if (e.target.classList.contains('student-select')) return updateState(`/api/students/${e.target.dataset.id}`, { status: e.target.value });
   if (e.target.classList.contains('enrollment-select')) return updateState(`/api/enrollments/${e.target.dataset.id}`, { stage: e.target.value });
   if (e.target.closest('[data-task-id]')) return updateState(`/api/tasks/${e.target.dataset.taskId}`, { completed: e.target.checked });
 });
 
 viewRoot.addEventListener('submit', async (e) => {
-  if (e.target.id === 'studentForm') await submitForm(e, '/api/students');
-  if (e.target.id === 'enrollmentForm') await submitForm(e, '/api/enrollments');
-  if (e.target.id === 'taskForm') await submitForm(e, '/api/tasks');
+  if (e.target.id === 'studentForm') await submitDataForm(e, '/api/students');
+  if (e.target.id === 'enrollmentForm') await submitDataForm(e, '/api/enrollments');
+  if (e.target.id === 'taskForm') await submitDataForm(e, '/api/tasks');
+  if (e.target.id === 'newUserForm') await submitDataForm(e, '/api/users');
+  
   if (e.target.id === 'importForm') {
     e.preventDefault();
     const file = e.target.querySelector('#importFile')?.files?.[0];
     if (!file) return showToast('Choose a file.', true);
-    try { await importStudentsFromFile(file); e.target.reset(); } catch (err) { showToast(err.message, true); }
+    if (!state.spreadsheetModule) state.spreadsheetModule = await import('/vendor/xlsx/xlsx.mjs');
+    const XLSX = state.spreadsheetModule;
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '', raw: false });
+      const students = rows.map(r => {
+        const norm = Object.entries(r).map(([k, v]) => [k.trim().toLowerCase(), v]);
+        const getF = (aliases) => { const m = norm.find(([k]) => aliases.includes(k)); return m ? String(m[1]).trim() : ''; };
+        return {
+          name: getF(['name', 'student name']), course_of_interest: getF(['course']), email: getF(['email']),
+          phone: getF(['phone', 'mobile']), counselor: getF(['counselor', 'owner'])
+        };
+      }).filter(s => s.name && s.course_of_interest);
+      
+      await request('/api/students/import', { method: 'POST', body: JSON.stringify({ students }) });
+      e.target.reset(); await loadCRM(); showToast(`${students.length} imported.`);
+    } catch (err) { showToast('Import failed. Ensure Name and Course columns exist.', true); }
   }
 });
 
 heroDate.textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
-loadCRM();
+checkAuth();
+
+// --- UPDATE YOUR CLICK LISTENER IN app.js ---
+
+viewRoot.addEventListener('click', async (e) => {
+  // ... (Keep your existing pagination logic here) ...
+  const pageBtn = e.target.closest('.btn-page');
+  if (pageBtn && !pageBtn.disabled) {
+    const newPage = parseInt(pageBtn.dataset.page);
+    try {
+      const data = await request(`/api/activities?page=${newPage}`);
+      state.crm.activities = data.activities;
+      state.crm.activitiesTotal = data.activitiesTotal;
+      state.crm.activityPage = data.activityPage;
+      renderApp(); 
+    } catch (err) { showToast(err.message, true); }
+  }
+
+  // --- ADD THIS NEW DELETE LOGIC ---
+  const deleteBtn = e.target.closest('.user-delete-btn');
+  if (deleteBtn) {
+    // Confirm before deleting
+    if (!confirm('Are you sure you want to permanently delete this staff account?')) return;
+    
+    try {
+      await request(`/api/users/${deleteBtn.dataset.id}`, { method: 'DELETE' });
+      showToast('Staff account deleted.');
+      // FIXED: Use loadCRM() instead of renderApp() so it fetches the fresh staff list!
+      await loadCRM();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  }
+});
