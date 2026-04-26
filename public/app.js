@@ -367,7 +367,12 @@ function renderEnrollmentsView() {
       <form id="enrollmentForm" class="mini-form">
         <input name="student_name" placeholder="Student name" required>
         <input name="course_name" placeholder="Course" required>
+        <input name="email" type="email" placeholder="Email Address">
+        <input name="phone" type="tel" placeholder="Mobile Number">
         ${counselorInput}
+        <select name="stage" required>
+          ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${val === 'enrolled' ? 'selected' : ''}>${lbl}</option>`).join('')}
+        </select>
         <input name="fee_collected" type="number" placeholder="Fee Collected">
         <button type="submit">Track Enrollment</button>
       </form>
@@ -378,13 +383,13 @@ function renderEnrollmentsView() {
 
 function renderTasksView() {
   const list = state.crm.tasks.length ? state.crm.tasks.map(t => `
-    <div class="task-item ${t.completed ? 'done' : ''}" style="display: flex; justify-content: space-between; align-items: center; padding-right: 14px;">
+    <div class="task-item ${t.completed ? 'done' : ''}" style="display: flex; justify-content: space-between; align-items: center; padding: 14px;">
       
-      <label style="display: flex; gap: 12px; align-items: flex-start; flex-grow: 1; cursor: pointer; margin: 0;">
-        <input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''}>
+      <label style="display: flex; gap: 14px; align-items: flex-start; flex-grow: 1; cursor: pointer; margin: 0;">
+        <input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''} style="margin-top: 3px; cursor: pointer;">
         <div>
-          <strong>${escapeHtml(t.title)}</strong>
-          <p>${escapeHtml(t.owner)} • due ${escapeHtml(formatDate(t.due_date))}</p>
+          <strong style="display: block; margin-bottom: 4px; color: var(--text);">${escapeHtml(t.title)}</strong>
+          <p style="margin: 0; color: var(--muted); font-size: 0.85rem;">${escapeHtml(t.owner)} • due ${escapeHtml(formatDate(t.due_date))}</p>
         </div>
       </label>
       

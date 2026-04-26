@@ -319,20 +319,22 @@ app.post('/api/enrollments', requireAuth, async (req, res) => {
   const owner = req.user.role === 'counselor' ? req.user.username : (b.counselor || 'Unassigned');
   
   try {
-    // 1. Insert into the Kanban Pipeline Board (Enrollments)
+    // 1. Insert into the Kanban Pipeline Board
+    // Defaults to 'enrolled' if stage isn't provided
+    const currentStage = b.stage || 'enrolled'; 
+    
     await pool.query(
       `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [createId('enr'), b.student_name, b.course_name, owner, 'new', currency(b.fee_collected), b.batch_start_date || formatToday()]
+      [createId('enr'), b.student_name, b.course_name, owner, currentStage, currency(b.fee_collected), b.batch_start_date || formatToday()]
     );
 
-    // 2. NEW: Reverse-sync! Put them in the Student Tracker too so they don't vanish!
+    // 2. Reverse-sync into Student Tracker (Now capturing email and phone!)
     await pool.query(
-      `INSERT INTO students (id, name, course_of_interest, status, source, counselor, expected_fee, last_contact) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [createId('stu'), b.student_name, b.course_name, 'new', 'Manual Enrollment', owner, currency(b.fee_collected), formatToday()]
+      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [createId('stu'), b.student_name, b.course_name, b.email || '', b.phone || '', currentStage, 'Manual Enrollment', owner, currency(b.fee_collected), formatToday()]
     );
 
-    // 3. FIXED GRAMMAR: Update the activity feed message
-    await logActivity('enrollment', `${b.student_name} was added to the pipeline`, `Managed by ${owner}`);
+    await logActivity('enrollment', `${b.student_name} was enrolled`, `Managed by ${owner}`);
     
     res.json({ message: 'Saved' });
   } catch (err) { 
