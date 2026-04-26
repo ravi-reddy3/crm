@@ -386,7 +386,7 @@ function renderTasksView() {
     <div class="task-item ${t.completed ? 'done' : ''}" style="display: flex; justify-content: space-between; align-items: center; padding: 14px;">
       
       <label style="display: flex; gap: 14px; align-items: flex-start; flex-grow: 1; cursor: pointer; margin: 0;">
-        <input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''} style="margin-top: 3px; cursor: pointer;">
+        <input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''} style="width: auto; flex-shrink: 0; margin-top: 3px; cursor: pointer;">
         <div>
           <strong style="display: block; margin-bottom: 4px; color: var(--text);">${escapeHtml(t.title)}</strong>
           <p style="margin: 0; color: var(--muted); font-size: 0.85rem;">${escapeHtml(t.owner)} • due ${escapeHtml(formatDate(t.due_date))}</p>
