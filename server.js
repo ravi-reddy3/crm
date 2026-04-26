@@ -302,18 +302,28 @@ app.post('/api/students/import', requireAuth, async (req, res) => {
     for (const s of students) {
       if (s.name && s.course_of_interest) {
         const owner = req.user.role === 'counselor' ? req.user.username : (s.counselor || 'Unassigned');
+        const defaultStage = s.status || 'new';
         
-        // NEW: Updated query to save education_level from the spreadsheet
+        // 1. Insert into Student Tracker (Inquiries)
         await pool.query(
           `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes, education_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-          [createId('stu'), s.name, s.course_of_interest, s.email, s.phone, s.status || 'new', s.source, owner, currency(s.expected_fee), formatToday(), s.background, s.notes, s.education_level || '']
+          [createId('stu'), s.name, s.course_of_interest, s.email, s.phone, defaultStage, s.source || 'Excel Import', owner, currency(s.expected_fee), formatToday(), s.background, s.notes, s.education_level || '']
         );
+
+        // 2. NEW: Automatically drop the imported leads onto the Pipeline Board!
+        await pool.query(
+          `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [createId('enr'), s.name, s.course_of_interest, owner, defaultStage, 0, formatToday()]
+        );
+        
         count++;
       }
     }
-    await logActivity('student', `${count} imported`, 'Bulk import processed.');
+    await logActivity('student', `${count} imported`, 'Bulk import processed and added to pipeline.');
     res.json({ message: 'Imported' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.post('/api/enrollments', requireAuth, async (req, res) => {
