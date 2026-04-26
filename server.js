@@ -195,6 +195,20 @@ async function processMetaLead(leadId) {
             [id, name, course, email, phone, 'new', 'Meta Ads', 'Unassigned', 0, today]
         );
 
+        // Insert into the students table
+        await pool.query(
+            `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [id, name, course, email, phone, 'new', 'Meta Ads', 'Unassigned', 0, today]
+        );
+
+        // NEW: Automatically drop Meta Leads straight into the Kanban Board!
+        await pool.query(
+            `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [createId('enr'), name, course, 'Unassigned', 'new', 0, today]
+        );
+
         // Log the activity so it shows up on your CRM dashboard
         await pool.query(
             `INSERT INTO activities (id, type, title, detail, created_at) VALUES ($1, $2, $3, $4, NOW())`,
@@ -207,7 +221,6 @@ async function processMetaLead(leadId) {
         console.error('❌ Error processing Meta lead:', error.response?.data || error.message);
     }
 }
-
 
 // --- CRM DATA ROUTES ---
 app.get('/api/crm', requireAuth, async (req, res) => {
@@ -258,15 +271,25 @@ app.get('/api/crm', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- CREATE & IMPORT ROUTES (RESTORED) ---
 app.post('/api/students', requireAuth, async (req, res) => {
   const b = req.body;
   const owner = req.user.role === 'counselor' ? req.user.username : (b.counselor || 'Unassigned');
   try {
+    const studentId = createId('stu');
+    const status = b.status || 'new';
+    
+    // 1. Insert into Tracker
     await pool.query(
       `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [createId('stu'), b.name, b.course_of_interest, b.email, b.phone, b.status || 'new', b.source, owner, currency(b.expected_fee), formatToday(), b.background, b.notes]
+      [studentId, b.name, b.course_of_interest, b.email, b.phone, status, b.source, owner, currency(b.expected_fee), formatToday(), b.background, b.notes]
     );
+
+    // 2. NEW: Instantly sync to the Kanban Pipeline Board!
+    await pool.query(
+      `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [createId('enr'), b.name, b.course_of_interest, owner, status, 0, formatToday()]
+    );
+
     await logActivity('student', `${b.name} added`, `Assigned to ${owner}`);
     res.json({ message: 'Saved' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -315,11 +338,128 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- UPDATE ROUTES (RESTORED) ---
-app.patch('/api/students/:id', requireAuth, async (req, res) => {
-  await pool.query(`UPDATE students SET status = $1, last_contact = NOW() WHERE id = $2`, [req.body.status, req.params.id]);
-  res.json({ message: 'Updated' });
+// ==========================================
+// 1. UPDATED ADD NOTE ROUTE (Fixes #1 and #3)
+// ==========================================
+app.post('/api/add-note', requireAuth, async (req, res) => {
+    const { student_id, comment } = req.body;
+    const author = req.user.username; // FEATURE 1: Grabs the actual logged-in user!
+
+    try {
+        // Fetch the student's current notes array
+        const studentRes = await pool.query('SELECT notes, name FROM students WHERE id = $1', [student_id]);
+        if (studentRes.rows.length === 0) return res.status(404).json({ error: 'Student not found' });
+
+        const student = studentRes.rows[0];
+        let notesArray = [];
+        if (student.notes) {
+            try { notesArray = JSON.parse(student.notes); } catch (e) { notesArray = []; }
+        }
+
+        // Create the new note object and add it to the history
+        const newNote = {
+            id: createId('not'),
+            author: author,
+            text: comment,
+            date: new Date().toISOString()
+        };
+        notesArray.push(newNote);
+
+        // Save the updated JSON array back to the student's database row
+        await pool.query('UPDATE students SET notes = $1, last_contact = NOW() WHERE id = $2', [JSON.stringify(notesArray), student_id]);
+
+        // Log it to the global activity feed with the real user's name
+        await pool.query(
+            `INSERT INTO activities (id, type, title, detail, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+            [createId('act'), 'note', `Note by ${author} for ${student.name}`, comment]
+        );
+
+        res.json({ message: 'Note saved successfully' });
+    } catch (error) {
+        console.error('Error saving note:', error);
+        res.status(500).json({ error: 'Error saving note' });
+    }
 });
+
+// ==========================================
+// 2. NEW EDIT NOTE ROUTE (Fixes #2)
+// ==========================================
+app.patch('/api/edit-note', requireAuth, async (req, res) => {
+    const { student_id, note_id, new_text } = req.body;
+    try {
+        const studentRes = await pool.query('SELECT notes FROM students WHERE id = $1', [student_id]);
+        if (studentRes.rows.length === 0) return res.status(404).json({ error: 'Student not found' });
+
+        // Parse the notes, find the specific one, and update the text
+        let notesArray = JSON.parse(studentRes.rows[0].notes || '[]');
+        const noteIndex = notesArray.findIndex(n => n.id === note_id);
+
+        if (noteIndex !== -1) {
+            notesArray[noteIndex].text = new_text;
+            notesArray[noteIndex].edited_at = new Date().toISOString(); 
+            
+            // Save it back to the database
+            await pool.query('UPDATE students SET notes = $1 WHERE id = $2', [JSON.stringify(notesArray), student_id]);
+            res.json({ message: 'Note updated successfully' });
+        } else {
+            res.status(404).json({ error: 'Note not found' });
+        }
+    } catch (error) {
+        console.error('Error editing note:', error);
+        res.status(500).json({ error: 'Error editing note' });
+    }
+});
+
+app.patch('/api/students/:id', requireAuth, async (req, res) => {
+  const { status, counselor } = req.body;
+  try {
+      if (status) {
+        await pool.query(`UPDATE students SET status = $1, last_contact = NOW() WHERE id = $2`, [status, req.params.id]);
+        
+        const studentRes = await pool.query(`SELECT name, course_of_interest, counselor FROM students WHERE id = $1`, [req.params.id]);
+        const s = studentRes.rows[0];
+
+        const checkEnr = await pool.query(`SELECT id FROM enrollments WHERE student_name = $1 AND course_name = $2`, [s.name, s.course_of_interest]);
+
+        if (checkEnr.rows.length > 0) {
+            await pool.query(`UPDATE enrollments SET stage = $1 WHERE id = $2`, [status, checkEnr.rows[0].id]);
+        } else {
+            // NEW: No matter what the stage is, if they aren't on the board, put them on it!
+            await pool.query(
+                `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [createId('enr'), s.name, s.course_of_interest, s.counselor, status, 0, new Date().toISOString().slice(0,10)]
+            );
+        }
+      } else if (counselor) {
+        await pool.query(`UPDATE students SET counselor = $1 WHERE id = $2`, [counselor, req.params.id]);
+        const studentRes = await pool.query(`SELECT name FROM students WHERE id = $1`, [req.params.id]);
+        await pool.query(`UPDATE enrollments SET counselor = $1 WHERE student_name = $2`, [counselor, studentRes.rows[0].name]);
+      }
+      res.json({ message: 'Updated and Synced' });
+  } catch (err) {
+      res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// ADMIN ONLY: DELETE STUDENT
+// ==========================================
+app.delete('/api/students/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+    try {
+        // Delete the student from the database
+        await pool.query('DELETE FROM students WHERE id = $1', [req.params.id]);
+        
+        // Optional: Also clean up their enrollments so they don't leave ghost data on the KanBan board
+        await pool.query('DELETE FROM enrollments WHERE id NOT IN (SELECT id FROM students)');
+
+        res.json({ message: 'Student deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting student:', err);
+        res.status(500).json({ error: 'Failed to delete student.' });
+    }
+});
+
+
 app.patch('/api/enrollments/:id', requireAuth, async (req, res) => {
   await pool.query(`UPDATE enrollments SET stage = $1 WHERE id = $2`, [req.body.stage, req.params.id]);
   res.json({ message: 'Updated' });

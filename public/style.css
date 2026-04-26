@@ -593,3 +593,85 @@ th {
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+/* --- NEW UI ELEMENTS --- */
+.action-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn-small {
+  padding: 0.5rem 0.8rem;
+  font-size: 0.8rem;
+  background: var(--paper-strong);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+}
+
+.btn-small:hover {
+  background: var(--line-strong);
+}
+
+.btn-close {
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 1.2rem;
+  padding: 0;
+}
+
+.btn-close:hover {
+  background: transparent;
+  color: #ef4444;
+  transform: none;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 500px;
+  position: relative;
+}
+
+/* ========================================== */
+/* CUSTOM KANBAN SCROLLBARS                   */
+/* ========================================== */
+
+/* Targets the horizontal board and the vertical columns */
+.scrollable-board::-webkit-scrollbar, 
+.scrollable-list::-webkit-scrollbar {
+    width: 6px;  /* Thin vertical scrollbar */
+    height: 8px; /* Thin horizontal scrollbar */
+}
+
+/* The track (background) of the scrollbar */
+.scrollable-board::-webkit-scrollbar-track, 
+.scrollable-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+}
+
+/* The draggable thumb */
+.scrollable-board::-webkit-scrollbar-thumb, 
+.scrollable-list::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 4px;
+}
+
+/* Hover effect on the thumb */
+.scrollable-board::-webkit-scrollbar-thumb:hover, 
+.scrollable-list::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+}
