@@ -317,14 +317,27 @@ app.post('/api/students/import', requireAuth, async (req, res) => {
 app.post('/api/enrollments', requireAuth, async (req, res) => {
   const b = req.body;
   const owner = req.user.role === 'counselor' ? req.user.username : (b.counselor || 'Unassigned');
+  
   try {
+    // 1. Insert into the Kanban Pipeline Board (Enrollments)
     await pool.query(
       `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [createId('enr'), b.student_name, b.course_name, owner, b.stage || 'inquiry', currency(b.fee_collected), b.batch_start_date || formatToday()]
+      [createId('enr'), b.student_name, b.course_name, owner, 'new', currency(b.fee_collected), b.batch_start_date || formatToday()]
     );
-    await logActivity('enrollment', `${b.student_name} pipeline added`, `Managed by ${owner}`);
+
+    // 2. NEW: Reverse-sync! Put them in the Student Tracker too so they don't vanish!
+    await pool.query(
+      `INSERT INTO students (id, name, course_of_interest, status, source, counselor, expected_fee, last_contact) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [createId('stu'), b.student_name, b.course_name, 'new', 'Manual Enrollment', owner, currency(b.fee_collected), formatToday()]
+    );
+
+    // 3. FIXED GRAMMAR: Update the activity feed message
+    await logActivity('enrollment', `${b.student_name} was added to the pipeline`, `Managed by ${owner}`);
+    
     res.json({ message: 'Saved' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.post('/api/tasks', requireAuth, async (req, res) => {
@@ -459,6 +472,28 @@ app.delete('/api/students/:id', requireAuth, requireRole(['admin']), async (req,
     }
 });
 
+// ==========================================
+// ADMIN ONLY: DELETE TASKS & ACTIVITIES
+// ==========================================
+app.delete('/api/tasks/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+    try {
+        await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Task deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting task:', err);
+        res.status(500).json({ error: 'Failed to delete task.' });
+    }
+});
+
+app.delete('/api/activities/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+    try {
+        await pool.query('DELETE FROM activities WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Activity deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting activity:', err);
+        res.status(500).json({ error: 'Failed to delete activity.' });
+    }
+});
 
 app.patch('/api/enrollments/:id', requireAuth, async (req, res) => {
   await pool.query(`UPDATE enrollments SET stage = $1 WHERE id = $2`, [req.body.stage, req.params.id]);

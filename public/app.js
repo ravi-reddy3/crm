@@ -113,9 +113,22 @@ function renderStaffDropdown(fieldName, placeholder) {
 function renderActivityFeed() {
   if (!state.crm?.activities.length) return '<div class="empty-panel">No activity yet.</div>';
   
-  const feedHtml = state.crm.activities.map((a) => `<article class="activity-item"><span class="activity-type">${escapeHtml(a.type)}</span><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.detail)}</p><small>${escapeHtml(new Date(a.created_at).toLocaleString())}</small></article>`).join('');
+  const feedHtml = state.crm.activities.map((a) => `
+    <article class="activity-item">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+        <span class="activity-type" style="margin-bottom: 0;">${escapeHtml(a.type)}</span>
+        
+        ${currentUser.role === 'admin' ? 
+          `<button type="button" onclick="deleteActivity('${escapeHtml(a.id)}')" style="background: transparent; color: #ef4444; padding: 0 4px; font-size: 1.1rem; box-shadow: none;" title="Delete Activity">✕</button>` 
+          : ''}
+      </div>
+      <strong>${escapeHtml(a.title)}</strong>
+      <p>${escapeHtml(a.detail)}</p>
+      <small>${escapeHtml(new Date(a.created_at).toLocaleString())}</small>
+    </article>
+  `).join('');
 
-  // Pagination Logic (6 items per page)
+  // Pagination Logic
   const totalPages = Math.ceil(state.crm.activitiesTotal / 6) || 1;
   const currentPage = state.crm.activityPage || 1;
 
@@ -364,9 +377,23 @@ function renderEnrollmentsView() {
 }
 
 function renderTasksView() {
-  const list = state.crm.tasks.length ? state.crm.tasks.map(t => `<label class="task-item ${t.completed ? 'done' : ''}"><input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''}><div><strong>${escapeHtml(t.title)}</strong><p>${escapeHtml(t.owner)} • due ${escapeHtml(formatDate(t.due_date))}</p></div></label>`).join('') : '<div class="empty-panel">No tasks.</div>';
+  const list = state.crm.tasks.length ? state.crm.tasks.map(t => `
+    <div class="task-item ${t.completed ? 'done' : ''}" style="display: flex; justify-content: space-between; align-items: center; padding-right: 14px;">
+      
+      <label style="display: flex; gap: 12px; align-items: flex-start; flex-grow: 1; cursor: pointer; margin: 0;">
+        <input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''}>
+        <div>
+          <strong>${escapeHtml(t.title)}</strong>
+          <p>${escapeHtml(t.owner)} • due ${escapeHtml(formatDate(t.due_date))}</p>
+        </div>
+      </label>
+      
+      ${currentUser.role === 'admin' ? 
+        `<button type="button" onclick="deleteTask('${escapeHtml(t.id)}')" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; flex-shrink: 0; margin-left: 10px;">Delete</button>` 
+        : ''}
+    </div>
+  `).join('') : '<div class="empty-panel">No tasks.</div>';
   
-  // REQUIREMENT 3: Task assignment hidden for counselors
   const ownerInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('owner', 'Assign Task To...');
 
   return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Tasks</h3></div><div class="task-list">${list}</div></section></div><div class="right-stack"><section class="card section-card forms-card"><div class="section-head"><h3>Add Task</h3></div><form id="taskForm" class="mini-form">
@@ -636,6 +663,33 @@ window.deleteStudent = async function(studentId) {
         await loadCRM(); 
     } catch (err) {
         // If a counselor somehow triggers this, it will throw the 403 Forbidden error here
+        showToast(err.message, true);
+    }
+};
+
+// ==========================================
+// ADMIN LOGIC: DELETE TASKS & ACTIVITIES
+// ==========================================
+window.deleteTask = async function(taskId) {
+    if (!confirm('Are you sure you want to delete this task?')) return;
+
+    try {
+        await request(`/api/tasks/${taskId}`, { method: 'DELETE' });
+        showToast('Task deleted.');
+        await loadCRM(); 
+    } catch (err) {
+        showToast(err.message, true);
+    }
+};
+
+window.deleteActivity = async function(activityId) {
+    if (!confirm('Are you sure you want to delete this activity log?')) return;
+
+    try {
+        await request(`/api/activities/${activityId}`, { method: 'DELETE' });
+        showToast('Activity deleted.');
+        await loadCRM(); 
+    } catch (err) {
         showToast(err.message, true);
     }
 };
