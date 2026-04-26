@@ -1,9 +1,10 @@
+let currentUser = null;
+const loginView = document.getElementById('loginView');
+const appView = document.getElementById('appView');
+const navPermissions = document.getElementById('navPermissions');
+
 const state = {
-  crm: null,
-  route: getRouteFromPath(window.location.pathname),
-  search: '',
-  statusFilter: 'all',
-  spreadsheetModule: null
+  crm: null, staff: [], route: getRouteFromPath(window.location.pathname), search: '', statusFilter: 'all', spreadsheetModule: null
 };
 
 const metricGrid = document.getElementById('metricGrid');
@@ -15,864 +16,626 @@ const pageTitle = document.getElementById('pageTitle');
 const pageDescription = document.getElementById('pageDescription');
 const navList = document.querySelector('.nav-list');
 
-const moneyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0
-});
-
-const dateFormatter = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric'
-});
+const moneyFormatter = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+const dateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
 const routeMeta = {
-  home: {
-    path: '/',
-    eyebrow: 'Starter CRM',
-    title: 'Manage contacts, track deals, and stay on top of follow-ups.',
-    description: 'Use dedicated pages for your leads, pipeline, and task queue while keeping your overall CRM picture visible from home.'
-  },
-  leads: {
-    path: '/leads',
-    eyebrow: 'Contacts',
-    title: 'Track leads, filter the list, and import spreadsheets in one place.',
-    description: 'Upload an Excel file to add leads quickly, then keep ownership, stages, and follow-ups organized from the leads page.'
-  },
-  pipeline: {
-    path: '/pipeline',
-    eyebrow: 'Revenue',
-    title: 'Move deals through the pipeline from a dedicated board view.',
-    description: 'Review every stage, update progress directly from the board, and create new opportunities without leaving the pipeline page.'
-  },
-  tasks: {
-    path: '/tasks',
-    eyebrow: 'Execution',
-    title: 'Keep follow-ups visible with a focused task and activity page.',
-    description: 'Track task completion, add new work items, and review recent team activity from a single workflow view.'
-  }
+  home: { path: '/', eyebrow: 'Admissions Hub', title: 'Manage students, track enrollments, and coordinate batches.', description: 'Keep your workflows visible.' },
+  inquiries: { path: '/inquiries', eyebrow: 'Prospective Students', title: 'Track inquiries, filter the list, and import spreadsheets.', description: 'Upload Excel files to add student leads quickly.' },
+  enrollments: { path: '/enrollments', eyebrow: 'Active Batches', title: 'Move students through the enrollment pipeline.', description: 'Review fee collection, update progress, and create batches.' },
+  tasks: { path: '/tasks', eyebrow: 'Execution', title: 'Keep counselor follow-ups visible with a task queue.', description: 'Track task completion and review recent team activity.' },
+  permissions: { path: '/permissions', eyebrow: 'Admin Control', title: 'Manage Staff Access and Roles', description: 'Create accounts to restrict data access.' }
 };
 
-const stageLabels = {
-  discovery: 'Discovery',
-  proposal: 'Proposal',
-  negotiation: 'Negotiation',
-  'closed-won': 'Closed Won',
-  'closed-lost': 'Closed Lost'
+const stageLabels = { 
+  'new': 'New Inquiry', 
+  'contacted': 'Contacted', 
+  'demo': 'Attended Demo', 
+  'payment-pending': 'Payment Pending', 
+  'enrolled': 'Enrolled', 
+  'dropped': 'Dropped' 
 };
 
 function getRouteFromPath(pathname) {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-
-  if (normalized === '/' || normalized === '/index.html') {
-    return 'home';
-  }
-
-  if (normalized === '/leads') {
-    return 'leads';
-  }
-
-  if (normalized === '/pipeline') {
-    return 'pipeline';
-  }
-
-  if (normalized === '/tasks') {
-    return 'tasks';
-  }
-
+  if (normalized === '/inquiries') return 'inquiries';
+  if (normalized === '/enrollments') return 'enrollments';
+  if (normalized === '/tasks') return 'tasks';
+  if (normalized === '/permissions') return 'permissions';
   return 'home';
 }
 
 function showToast(message, isError = false) {
-  toast.textContent = message;
-  toast.className = `toast visible ${isError ? 'error' : ''}`;
+  toast.textContent = message; toast.className = `toast visible ${isError ? 'error' : ''}`;
   window.clearTimeout(showToast.timeoutId);
-  showToast.timeoutId = window.setTimeout(() => {
-    toast.className = 'toast';
-  }, 2600);
+  showToast.timeoutId = window.setTimeout(() => { toast.className = 'toast'; }, 2600);
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function formatMoney(value) {
-  return moneyFormatter.format(Number(value || 0));
-}
-
+function escapeHtml(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function formatMoney(value) { return moneyFormatter.format(Number(value || 0)); }
 function formatDate(value) {
-  if (!value) {
-    return 'No date';
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : dateFormatter.format(date);
+  if (!value) return 'No date';
+  const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : dateFormatter.format(date);
 }
 
-function normalizeStatus(status) {
-  const normalized = String(status || '').trim().toLowerCase();
-  return ['new', 'contacted', 'qualified', 'proposal', 'customer'].includes(normalized) ? normalized : 'new';
+async function request(path, options = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
 }
 
-function sanitizeNumeric(value) {
-  const cleaned = String(value ?? '').replace(/[^0-9.-]/g, '');
-  const number = Number(cleaned);
-  return Number.isFinite(number) ? number : 0;
+// --- AUTH LOGIC ---
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) throw new Error('Not logged in');
+    const data = await res.json();
+    currentUser = data.user;
+    
+    document.getElementById('currentUserLabel').textContent = `${currentUser.username} (${currentUser.role})`;
+    navPermissions.style.display = currentUser.role === 'admin' ? 'block' : 'none';
+    
+    loginView.style.display = 'none'; appView.style.display = 'grid';
+    loadCRM(); 
+  } catch (err) { loginView.style.display = 'block'; appView.style.display = 'none'; }
 }
 
-function metricCardsForRoute() {
-  if (!state.crm) {
-    return [];
-  }
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try { await request('/api/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) }); await checkAuth(); } 
+  catch (err) { showToast(err.message, true); }
+});
 
-  const dashboard = state.crm.dashboard;
-  const openTasks = state.crm.tasks.filter((task) => !task.completed).length;
-  const overdueTasks = state.crm.tasks.filter((task) => !task.completed && new Date(task.dueDate) < new Date()).length;
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' }); window.location.reload();
+});
 
-  if (state.route === 'leads') {
-    return [
-      { label: 'Total Leads', value: dashboard.totalContacts, detail: 'Tracked contacts in the workspace' },
-      { label: 'New Leads', value: dashboard.leadsByStatus.find((item) => item.status === 'new')?.count || 0, detail: 'Fresh records ready for outreach' },
-      { label: 'Qualified', value: dashboard.leadsByStatus.find((item) => item.status === 'qualified')?.count || 0, detail: 'Ready for sales follow-up' },
-      { label: 'Customers', value: dashboard.leadsByStatus.find((item) => item.status === 'customer')?.count || 0, detail: 'Converted accounts on record' }
-    ];
-  }
-
-  if (state.route === 'pipeline') {
-    return [
-      { label: 'Active Deals', value: dashboard.activeDeals, detail: `${dashboard.conversionRate}% conversion rate` },
-      { label: 'Pipeline Value', value: formatMoney(dashboard.pipelineValue), detail: 'Open revenue in play' },
-      { label: 'Won Deals', value: dashboard.wonDeals, detail: 'Closed revenue this cycle' },
-      { label: 'Tracked Accounts', value: dashboard.totalContacts, detail: 'Leads supporting the funnel' }
-    ];
-  }
-
-  if (state.route === 'tasks') {
-    return [
-      { label: 'Task Completion', value: `${dashboard.taskCompletionRate}%`, detail: 'Completed follow-ups across the team' },
-      { label: 'Open Tasks', value: openTasks, detail: 'Still in progress' },
-      { label: 'Overdue Tasks', value: overdueTasks, detail: 'Need attention first' },
-      { label: 'Recent Activity', value: state.crm.activities.length, detail: 'Latest CRM updates shown below' }
-    ];
-  }
-
-  return [
-    { label: 'Contacts', value: dashboard.totalContacts, detail: 'Tracked accounts in your workspace' },
-    { label: 'Active Deals', value: dashboard.activeDeals, detail: `${dashboard.conversionRate}% conversion rate` },
-    { label: 'Pipeline Value', value: formatMoney(dashboard.pipelineValue), detail: `${dashboard.wonDeals} won deal${dashboard.wonDeals === 1 ? '' : 's'}` },
-    { label: 'Task Completion', value: `${dashboard.taskCompletionRate}%`, detail: 'Completed follow-ups across the team' }
-  ];
-}
-
+// --- RENDER LOGIC ---
 function renderMetrics() {
-  if (!state.crm) {
-    metricGrid.innerHTML = '';
-    return;
-  }
-
-  metricGrid.innerHTML = metricCardsForRoute().map((card) => `
-    <article class="metric-card card">
-      <p>${escapeHtml(card.label)}</p>
-      <strong>${escapeHtml(card.value)}</strong>
-      <span>${escapeHtml(card.detail)}</span>
-    </article>
-  `).join('');
+  if (!state.crm) { metricGrid.innerHTML = ''; return; }
+  const d = state.crm.dashboard;
+  const cards = [
+    { label: 'Total Inquiries', value: d.totalContacts, detail: 'Prospects tracked' },
+    { label: 'Active Funnel', value: d.activeDeals, detail: `${d.conversionRate}% conversion rate` },
+    { label: 'Expected Fees', value: formatMoney(d.pipelineValue), detail: `${d.wonDeals} enrolled` },
+    { label: 'Open Tasks', value: state.crm.tasks.filter(t => !t.completed).length, detail: 'Follow-ups pending' }
+  ];
+  metricGrid.innerHTML = cards.map(c => `<article class="metric-card card"><p>${escapeHtml(c.label)}</p><strong>${escapeHtml(c.value)}</strong><span>${escapeHtml(c.detail)}</span></article>`).join('');
 }
 
-function getFilteredLeads() {
-  if (!state.crm) {
-    return [];
-  }
-
-  return state.crm.leads.filter((lead) => {
-    const matchesStatus = state.statusFilter === 'all' || lead.status === state.statusFilter;
-    const haystack = `${lead.name} ${lead.company} ${lead.owner} ${lead.email} ${lead.source}`.toLowerCase();
-    const matchesSearch = haystack.includes(state.search.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
-}
-
-function renderLeadsTable() {
-  const leads = getFilteredLeads();
-
-  if (!leads.length) {
-    return `
-      <div class="empty-panel">No leads match the current filters.</div>
-    `;
-  }
-
-  return `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Contact</th>
-            <th>Stage</th>
-            <th>Value</th>
-            <th>Owner</th>
-            <th>Last Contact</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${leads.map((lead) => `
-            <tr>
-              <td>
-                <div class="lead-primary">
-                  <strong>${escapeHtml(lead.name)}</strong>
-                  <span>${escapeHtml(lead.company)}</span>
-                  <small>${escapeHtml(lead.email || lead.phone || 'No direct contact yet')}</small>
-                </div>
-              </td>
-              <td>
-                <select class="inline-select" data-lead-id="${escapeHtml(lead.id)}">
-                  ${['new', 'contacted', 'qualified', 'proposal', 'customer'].map((status) => `
-                    <option value="${status}" ${lead.status === status ? 'selected' : ''}>${status}</option>
-                  `).join('')}
-                </select>
-              </td>
-              <td>${escapeHtml(formatMoney(lead.estimatedValue))}</td>
-              <td>${escapeHtml(lead.owner)}</td>
-              <td>${escapeHtml(formatDate(lead.lastContact))}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderDealsBoard() {
-  if (!state.crm) {
-    return '';
-  }
-
-  const stages = ['discovery', 'proposal', 'negotiation', 'closed-won', 'closed-lost'];
-
-  return stages.map((stage) => {
-    const deals = state.crm.deals.filter((deal) => deal.stage === stage);
-
-    return `
-      <section class="pipeline-column">
-        <div class="pipeline-head">
-          <h4>${escapeHtml(stageLabels[stage])}</h4>
-          <span>${deals.length}</span>
-        </div>
-        <div class="pipeline-list">
-          ${deals.length ? deals.map((deal) => `
-            <article class="deal-card">
-              <div class="deal-topline">
-                <strong>${escapeHtml(deal.title)}</strong>
-                <span>${escapeHtml(formatMoney(deal.value))}</span>
-              </div>
-              <p>${escapeHtml(deal.company)}</p>
-              <div class="deal-meta">
-                <span>${escapeHtml(deal.owner)}</span>
-                <span>${escapeHtml(deal.health)}</span>
-              </div>
-              <div class="deal-footer">
-                <small>Close ${escapeHtml(formatDate(deal.expectedClose))}</small>
-                <select class="inline-select deal-select" data-deal-id="${escapeHtml(deal.id)}">
-                  ${Object.entries(stageLabels).map(([value, label]) => `
-                    <option value="${value}" ${deal.stage === value ? 'selected' : ''}>${label}</option>
-                  `).join('')}
-                </select>
-              </div>
-            </article>
-          `).join('') : '<div class="empty-panel">No deals in this stage.</div>'}
-        </div>
-      </section>
-    `;
-  }).join('');
-}
-
-function renderTasksList() {
-  if (!state.crm?.tasks.length) {
-    return '<div class="empty-panel">No tasks yet.</div>';
-  }
-
-  return state.crm.tasks.map((task) => `
-    <label class="task-item ${task.completed ? 'done' : ''}">
-      <input type="checkbox" data-task-id="${escapeHtml(task.id)}" ${task.completed ? 'checked' : ''}>
-      <div>
-        <strong>${escapeHtml(task.title)}</strong>
-        <p>${escapeHtml(task.owner)} • ${escapeHtml(task.priority)} priority • due ${escapeHtml(formatDate(task.dueDate))}</p>
-      </div>
-    </label>
-  `).join('');
+// Helper to generate a dropdown from the database
+function renderStaffDropdown(fieldName, placeholder) {
+  const options = state.staff.map(s => `<option value="${escapeHtml(s.username)}">${escapeHtml(s.username)} (${escapeHtml(s.role)})</option>`).join('');
+  return `<select name="${fieldName}" required><option value="">${placeholder}</option>${options}</select>`;
 }
 
 function renderActivityFeed() {
-  if (!state.crm?.activities.length) {
-    return '<div class="empty-panel">No activity yet.</div>';
-  }
+  if (!state.crm?.activities.length) return '<div class="empty-panel">No activity yet.</div>';
+  
+  const feedHtml = state.crm.activities.map((a) => `<article class="activity-item"><span class="activity-type">${escapeHtml(a.type)}</span><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.detail)}</p><small>${escapeHtml(new Date(a.created_at).toLocaleString())}</small></article>`).join('');
 
-  return state.crm.activities.map((activity) => `
-    <article class="activity-item">
-      <span class="activity-type">${escapeHtml(activity.type)}</span>
-      <strong>${escapeHtml(activity.title)}</strong>
-      <p>${escapeHtml(activity.detail)}</p>
-      <small>${escapeHtml(new Date(activity.createdAt).toLocaleString())}</small>
-    </article>
-  `).join('');
+  // Pagination Logic (6 items per page)
+  const totalPages = Math.ceil(state.crm.activitiesTotal / 6) || 1;
+  const currentPage = state.crm.activityPage || 1;
+
+  const paginationHtml = `
+    <div class="pagination">
+      <button type="button" class="btn-page" data-page="${currentPage - 1}" ${currentPage <= 1 ? 'disabled' : ''}>&larr; Prev</button>
+      <span class="page-info">Page ${currentPage} of ${totalPages}</span>
+      <button type="button" class="btn-page" data-page="${currentPage + 1}" ${currentPage >= totalPages ? 'disabled' : ''}>Next &rarr;</button>
+    </div>
+  `;
+
+  return feedHtml + paginationHtml;
 }
 
 function renderHomeView() {
-  const recentDeals = state.crm.deals.slice(0, 3);
+  return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Admissions Snapshot</h3></div><div class="summary-grid">${state.crm.dashboard.leadsByStatus.map(e => `<article class="summary-card"><span>${escapeHtml(e.status.replace('-', ' '))}</span><strong>${escapeHtml(e.count)}</strong></article>`).join('')}</div></section></div><div class="right-stack"><section class="card section-card"><div class="section-head"><h3>Recent Updates</h3></div><div class="activity-feed">${renderActivityFeed()}</div></section></div></section>`;
+}
 
+// --- REPLACE EXISTING renderStudentsView IN app.js ---
+function renderStudentsView() {
+  // 1. Filter students based on search and status
+  const students = state.crm.students.filter(s => (state.statusFilter === 'all' || s.status === state.statusFilter) && `${s.name} ${s.course_of_interest}`.toLowerCase().includes(state.search.toLowerCase()));
+  
+  const counselorInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('counselor', 'Assign to Counselor...');
+
+  // 2. Generate the Table
+  const table = `<div class="table-wrap">
+    <table style="width: 100%;">
+      <thead>
+        <tr>
+          <th style="width: 240px;">Student Info</th>
+          <th>Stage</th>
+          <th>Counselor</th>
+          <th>Last Contact</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${students.map(s => {
+          let notesArr = [];
+          try { if (s.notes) notesArr = JSON.parse(s.notes); } catch(e) {}
+          const callCount = notesArr.length;
+
+          return `
+          <tr>
+            <td style="width: 240px; vertical-align: top;">
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <strong style="font-size: 1.05rem; color: var(--text);">${escapeHtml(s.name)}</strong>
+                <span style="color:var(--teal); font-size: 0.8rem; line-height: 1.2;">${escapeHtml(s.email || 'No email')}</span>
+                <span style="color:var(--muted); font-size: 0.8rem; line-height: 1.2;">${escapeHtml(s.phone || 'No phone')}</span>
+                <strong style="margin-top: 6px; font-size: 0.85rem; color: var(--text);">${escapeHtml(s.course_of_interest)}</strong>
+              </div>
+            </td>
+            
+            <td style="vertical-align: top;">
+              <select class="inline-select student-select" data-id="${escapeHtml(s.id)}">
+                ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${s.status === val ? 'selected' : ''}>${lbl}</option>`).join('')}
+              </select>
+            </td>
+            
+            <td style="vertical-align: top;">
+              <select class="inline-select counselor-select" data-id="${escapeHtml(s.id)}">
+                <option value="Unassigned" ${s.counselor === 'Unassigned' ? 'selected' : ''}>Unassigned</option>
+                ${state.staff.map(staff => `<option value="${escapeHtml(staff.username)}" ${s.counselor === staff.username ? 'selected' : ''}>${escapeHtml(staff.username)} (${escapeHtml(staff.role)})</option>`).join('')}
+              </select>
+            </td>
+            
+            <td style="vertical-align: top;">${escapeHtml(formatDate(s.last_contact))}</td>
+            
+            <td style="text-align: right; min-width: 170px; vertical-align: top;">
+              <div style="margin-bottom: 8px; font-size: 0.75rem; color: var(--gold); font-weight: bold;">
+                📞 Called: ${callCount} times
+              </div>
+              <div style="display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap;">
+                  <button onclick="openNoteModal('${escapeHtml(s.id)}', '${escapeHtml(s.name)}')" class="btn-small">💬 +Note</button>
+                  <button onclick="openHistoryModal('${escapeHtml(s.id)}')" class="btn-small" style="background: transparent; border-color: var(--line-strong);">📜 History</button>
+                  ${currentUser.role === 'admin' ? 
+                    `<button onclick="deleteStudent('${escapeHtml(s.id)}')" class="btn-small" style="background: transparent; border-color: #ef4444; color: #ef4444;">🗑️ Delete</button>` 
+                    : ''}
+              </div>
+            </td>
+          </tr>
+        `}).join('')}
+      </tbody>
+    </table>
+  </div>`;
+
+  // 3. Generate the Modals
+  const modals = `
+    <div id="addStudentModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card forms-card">
+        <div class="section-head">
+          <h3>Add Inquiry</h3>
+          <button type="button" class="btn-close" onclick="document.getElementById('addStudentModal').style.display='none'">✕</button>
+        </div>
+        <form id="studentForm" class="mini-form">
+          <input name="name" placeholder="Student name" required>
+          <input name="course_of_interest" placeholder="Course" required>
+          <input name="email" placeholder="Email">
+          <input name="phone" placeholder="Phone">
+          <input name="expected_fee" type="number" placeholder="Expected Fee">
+          ${counselorInput}
+          <button type="submit">Add Student</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="importModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card forms-card">
+        <div class="section-head">
+          <h3>Import Spreadsheet</h3>
+          <button type="button" class="btn-close" onclick="document.getElementById('importModal').style.display='none'">✕</button>
+        </div>
+        <form id="importForm" class="mini-form">
+          <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required>
+          <button type="submit">Import</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="noteModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card forms-card">
+        <div class="section-head">
+          <h3 id="noteModalTitle">Add Note</h3>
+          <button type="button" class="btn-close" onclick="document.getElementById('noteModal').style.display='none'">✕</button>
+        </div>
+        <form id="noteForm" class="mini-form">
+          <input type="hidden" id="noteStudentId" name="student_id">
+          <textarea name="comment" rows="4" placeholder="Type counselor note here..." required></textarea>
+          <button type="submit">Save Note</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="historyModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card forms-card" style="max-height: 85vh; overflow-y: auto;">
+        <div class="section-head">
+          <h3 id="historyModalTitle">Call History</h3>
+          <button type="button" class="btn-close" onclick="document.getElementById('historyModal').style.display='none'">✕</button>
+        </div>
+        <div id="historyContent" style="display: flex; flex-direction: column; gap: 12px;">
+          </div>
+      </div>
+    </div>
+  `;
+
+  // 4. THE MISSING RETURN STATEMENT! This prints the HTML to the screen.
   return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card section-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Overview</p>
-              <h3>Workspace snapshot</h3>
-            </div>
-          </div>
-          <div class="summary-grid">
-            ${state.crm.dashboard.leadsByStatus.map((entry) => `
-              <article class="summary-card">
-                <span>${escapeHtml(entry.status)}</span>
-                <strong>${escapeHtml(entry.count)}</strong>
-              </article>
-            `).join('')}
-          </div>
-          <div class="home-actions">
-            <button type="button" data-navigate="leads">Open Leads</button>
-            <button type="button" data-navigate="pipeline">Open Pipeline</button>
-            <button type="button" data-navigate="tasks">Open Tasks</button>
-          </div>
-        </section>
-
-        <section class="card section-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Deals</p>
-              <h3>Upcoming closes</h3>
-            </div>
-          </div>
-          <div class="compact-list">
-            ${recentDeals.map((deal) => `
-              <article class="compact-item">
-                <div>
-                  <strong>${escapeHtml(deal.title)}</strong>
-                  <p>${escapeHtml(deal.company)} • ${escapeHtml(stageLabels[deal.stage])}</p>
-                </div>
-                <span>${escapeHtml(formatMoney(deal.value))}</span>
-              </article>
-            `).join('')}
-          </div>
-        </section>
+    <section class="card section-card" style="grid-column: 1 / -1;">
+      <div class="section-head" style="align-items: center;">
+        <h3>Student Tracker</h3>
+        <div class="action-bar">
+          <input id="studentSearch" type="search" placeholder="Search..." value="${escapeHtml(state.search)}" style="max-width: 200px;">
+          <button onclick="document.getElementById('addStudentModal').style.display='flex'">+ Add Inquiry</button>
+          <button onclick="document.getElementById('importModal').style.display='flex'" style="background: var(--paper-strong); color: var(--text);">📁 Import</button>
+        </div>
       </div>
-
-      <div class="right-stack">
-        <section class="card section-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Activity</p>
-              <h3>Recent updates</h3>
-            </div>
-          </div>
-          <div class="activity-feed">${renderActivityFeed()}</div>
-        </section>
-      </div>
+      ${table}
     </section>
+    ${modals}
   `;
 }
 
-function renderLeadsView() {
-  return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card section-card" id="leads">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Contacts</p>
-              <h3>Lead tracker</h3>
-            </div>
-            <div class="section-controls">
-              <input id="leadSearch" type="search" placeholder="Search name, company, owner" value="${escapeHtml(state.search)}">
-              <select id="leadStatusFilter">
-                <option value="all" ${state.statusFilter === 'all' ? 'selected' : ''}>All stages</option>
-                <option value="new" ${state.statusFilter === 'new' ? 'selected' : ''}>New</option>
-                <option value="contacted" ${state.statusFilter === 'contacted' ? 'selected' : ''}>Contacted</option>
-                <option value="qualified" ${state.statusFilter === 'qualified' ? 'selected' : ''}>Qualified</option>
-                <option value="proposal" ${state.statusFilter === 'proposal' ? 'selected' : ''}>Proposal</option>
-                <option value="customer" ${state.statusFilter === 'customer' ? 'selected' : ''}>Customer</option>
-              </select>
-            </div>
-          </div>
-          ${renderLeadsTable()}
-        </section>
+// Attach the global open function so the inline buttons can find it
+window.openNoteModal = function(studentId, studentName) {
+  document.getElementById('noteStudentId').value = studentId;
+  document.getElementById('noteModalTitle').innerText = 'Add Note for ' + escapeHtml(studentName);
+  document.getElementById('noteModal').style.display = 'flex';
+};
+
+// --- REPLACE EXISTING renderEnrollmentsView IN app.js ---
+function renderEnrollmentsView() {
+  
+  const board = Object.keys(stageLabels).map(stage => {
+    const stageEnrollments = state.crm.enrollments.filter(e => e.stage === stage);
+    
+    return `
+    <section class="pipeline-column" style="min-width: 250px; width: 250px; flex-shrink: 0; display: flex; flex-direction: column; max-height: calc(100vh - 380px);">
+      
+      <div class="pipeline-head" style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; flex-shrink: 0;">
+        <h4 style="font-size: 0.95rem; color: var(--text);">${escapeHtml(stageLabels[stage])}</h4>
+        <span style="font-size: 0.75rem; color: var(--muted); background: var(--bg); padding: 2px 8px; border-radius: 12px; font-weight: bold;">
+          ${stageEnrollments.length}
+        </span>
       </div>
-
-      <div class="right-stack">
-        <section class="card section-card forms-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Import</p>
-              <h3>Upload lead spreadsheet</h3>
+      
+      <div class="pipeline-list scrollable-list" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 4px; flex-grow: 1;">
+        ${stageEnrollments.map(e => `
+          
+          <article class="deal-card" style="padding: 10px; border-radius: 8px; background: var(--paper-strong); box-shadow: 0 2px 4px rgba(0,0,0,0.12);">
+            
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+              <div style="line-height: 1.2;">
+                <strong style="font-size: 0.9rem; color: var(--text);">${escapeHtml(e.student_name)}</strong><br>
+                <span style="font-size: 0.75rem; color: var(--muted);">${escapeHtml(e.course_name)}</span>
+              </div>
+              <span style="font-size: 0.7rem; color: var(--accent); font-weight: bold; background: rgba(74, 222, 128, 0.1); padding: 2px 4px; border-radius: 4px;">
+                ${escapeHtml(formatMoney(e.fee_collected))}
+              </span>
             </div>
-            <p class="muted-copy">Accepted: .xlsx, .xls, or .csv.</p>
-          </div>
-          <form id="leadImportForm" class="mini-form import-form">
-            <p class="muted-copy">Use columns like Name, Company, Email, Phone, Status, Owner, Value, Source, Tags, and Notes.</p>
-            <input id="leadImportFile" name="file" type="file" accept=".xlsx,.xls,.csv" required>
-            <button type="submit">Import Leads</button>
-          </form>
-        </section>
-
-        <section class="card section-card forms-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Quick Capture</p>
-              <h3>Add new lead</h3>
-            </div>
-          </div>
-          <form id="leadForm" class="mini-form">
-            <input name="name" placeholder="Contact name" required>
-            <input name="company" placeholder="Company" required>
-            <input name="email" type="email" placeholder="Email">
-            <input name="phone" placeholder="Phone">
-            <div class="field-row">
-              <select name="status">
-                <option value="new">New</option>
-                <option value="contacted">Contacted</option>
-                <option value="qualified">Qualified</option>
-                <option value="proposal">Proposal</option>
-                <option value="customer">Customer</option>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding-top: 8px; gap: 6px;">
+              <span style="font-size: 0.75rem; color: var(--teal); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;">👤 ${escapeHtml(e.counselor)}</span>
+              <select class="inline-select enrollment-select" data-id="${escapeHtml(e.id)}" style="padding: 2px 4px; font-size: 0.7rem; height: auto; width: 105px; flex-shrink: 0; border-color: var(--line-strong);">
+                ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${e.stage === val ? 'selected' : ''}>${lbl}</option>`).join('')}
               </select>
-              <input name="estimatedValue" type="number" min="0" step="1000" placeholder="Value">
             </div>
-            <div class="field-row">
-              <input name="owner" placeholder="Owner">
-              <input name="source" placeholder="Source">
-            </div>
-            <input name="tags" placeholder="Tags, comma separated">
-            <textarea name="notes" rows="3" placeholder="Notes"></textarea>
-            <button type="submit">Add Lead</button>
-          </form>
-        </section>
+            
+          </article>
+        `).join('')}
       </div>
     </section>
-  `;
-}
+  `}).join('');
+  
+  const counselorInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('counselor', 'Assign to Counselor...');
 
-function renderPipelineView() {
+  // --- REPLACE THIS SECTION IN renderEnrollmentsView ---
   return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card section-card" id="pipeline">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Revenue</p>
-              <h3>Pipeline board</h3>
-            </div>
-            <p class="muted-copy">Update deal stages directly from the board.</p>
-          </div>
-          <div class="pipeline-board">${renderDealsBoard()}</div>
-        </section>
-      </div>
+  <section class="card section-card" style="grid-column: 1 / -1; padding-bottom: 10px; min-width: 0; width: 100%; overflow: hidden;">
+    <div class="section-head" style="align-items: center; margin-bottom: 12px;">
+      <h3>Pipeline Board</h3>
+      <button onclick="document.getElementById('addEnrollmentModal').style.display='flex'">+ Add Enrollment</button>
+    </div>
+    
+    <div class="pipeline-board scrollable-board" style="display: flex; overflow-x: auto; gap: 14px; padding-bottom: 8px; width: 100%;">
+      ${board}
+    </div>
+  </section>
 
-      <div class="right-stack">
-        <section class="card section-card forms-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Quick Capture</p>
-              <h3>Create new deal</h3>
-            </div>
-          </div>
-          <form id="dealForm" class="mini-form">
-            <input name="title" placeholder="Deal title" required>
-            <input name="company" placeholder="Company" required>
-            <div class="field-row">
-              <input name="owner" placeholder="Owner">
-              <input name="value" type="number" min="0" step="1000" placeholder="Deal value">
-            </div>
-            <div class="field-row">
-              <select name="stage">
-                <option value="discovery">Discovery</option>
-                <option value="proposal">Proposal</option>
-                <option value="negotiation">Negotiation</option>
-                <option value="closed-won">Closed Won</option>
-                <option value="closed-lost">Closed Lost</option>
-              </select>
-              <input name="health" placeholder="Health">
-            </div>
-            <input name="expectedClose" type="date">
-            <button type="submit">Create Deal</button>
-          </form>
-        </section>
+  <div id="addEnrollmentModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content card forms-card">
+      <div class="section-head">
+        <h3>Add Enrollment</h3>
+        <button type="button" class="btn-close" onclick="document.getElementById('addEnrollmentModal').style.display='none'">✕</button>
       </div>
-    </section>
+      <form id="enrollmentForm" class="mini-form">
+        <input name="student_name" placeholder="Student name" required>
+        <input name="course_name" placeholder="Course" required>
+        ${counselorInput}
+        <input name="fee_collected" type="number" placeholder="Fee Collected">
+        <button type="submit">Track Enrollment</button>
+      </form>
+    </div>
+  </div>
   `;
 }
 
 function renderTasksView() {
-  return `
-    <section class="content-grid">
-      <div class="left-stack">
-        <section class="card split-card" id="tasks">
-          <div class="section-card inner-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Execution</p>
-                <h3>Tasks</h3>
-              </div>
-            </div>
-            <div class="task-list">${renderTasksList()}</div>
-          </div>
+  const list = state.crm.tasks.length ? state.crm.tasks.map(t => `<label class="task-item ${t.completed ? 'done' : ''}"><input type="checkbox" data-task-id="${escapeHtml(t.id)}" ${t.completed ? 'checked' : ''}><div><strong>${escapeHtml(t.title)}</strong><p>${escapeHtml(t.owner)} • due ${escapeHtml(formatDate(t.due_date))}</p></div></label>`).join('') : '<div class="empty-panel">No tasks.</div>';
+  
+  // REQUIREMENT 3: Task assignment hidden for counselors
+  const ownerInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('owner', 'Assign Task To...');
 
-          <div class="section-card inner-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">Activity</p>
-                <h3>Recent updates</h3>
-              </div>
-            </div>
-            <div class="activity-feed">${renderActivityFeed()}</div>
-          </div>
-        </section>
-      </div>
-
-      <div class="right-stack">
-        <section class="card section-card forms-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Quick Capture</p>
-              <h3>Add task</h3>
-            </div>
-          </div>
-          <form id="taskForm" class="mini-form">
-            <input name="title" placeholder="Task title" required>
-            <div class="field-row">
-              <input name="owner" placeholder="Owner">
-              <input name="dueDate" type="date">
-            </div>
-            <select name="priority">
-              <option value="High">High priority</option>
-              <option value="Medium">Medium priority</option>
-              <option value="Low">Low priority</option>
-            </select>
-            <button type="submit">Add Task</button>
-          </form>
-        </section>
-      </div>
-    </section>
-  `;
+  return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Tasks</h3></div><div class="task-list">${list}</div></section></div><div class="right-stack"><section class="card section-card forms-card"><div class="section-head"><h3>Add Task</h3></div><form id="taskForm" class="mini-form">
+    <input name="title" placeholder="Call student regarding fee..." required>
+    ${ownerInput}
+    <input name="due_date" type="date" required title="Select Due Date">
+    <button type="submit">Add Task</button>
+  </form></section></div></section>`;
 }
 
-function renderView() {
-  if (!state.crm) {
-    viewRoot.innerHTML = '<section class="card section-card"><div class="empty-panel">Loading CRM data...</div></section>';
-    return;
-  }
+// --- REPLACE THIS FUNCTION IN app.js ---
 
-  if (state.route === 'leads') {
-    viewRoot.innerHTML = renderLeadsView();
-    return;
-  }
+async function renderPermissionsView() {
+  if (currentUser.role !== 'admin') return '<div class="empty-panel">Access Denied</div>';
+  const users = await request('/api/users');
+  
+  // Notice the new Action column and the Delete button below
+  return `<section class="content-grid">
+    <div class="left-stack">
+      <section class="card section-card">
+        <div class="section-head"><h3>Staff Accounts</h3></div>
+        <table>
+          <thead>
+            <tr><th>Username</th><th>Role</th><th style="width: 80px;">Action</th></tr>
+          </thead>
+          <tbody>
+            ${users.map(u => `
+              <tr>
+                <td>${escapeHtml(u.username)}</td>
+                <td style="text-transform: capitalize;">${escapeHtml(u.role)}</td>
+                <td>
+                  ${u.username !== currentUser.username 
+                    ? `<button type="button" class="user-delete-btn" data-id="${escapeHtml(u.id)}" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">Delete</button>` 
+                    : '<span style="color: var(--muted); font-size: 0.85rem;">(You)</span>'}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </section>
+    </div>
+    <div class="right-stack">
+      <section class="card section-card forms-card">
+        <div class="section-head"><h3>Add Staff</h3></div>
+        <form id="newUserForm" class="mini-form">
+          <input name="username" placeholder="Username" required>
+          <input name="password" type="password" placeholder="Password" required>
+          <select name="role">
+            <option value="counselor">Counselor</option>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button type="submit">Create User</button>
+        </form>
+      </section>
+    </div>
+  </section>`;
+}
 
-  if (state.route === 'pipeline') {
-    viewRoot.innerHTML = renderPipelineView();
-    return;
-  }
-
-  if (state.route === 'tasks') {
-    viewRoot.innerHTML = renderTasksView();
-    return;
-  }
-
-  viewRoot.innerHTML = renderHomeView();
+async function renderView() {
+  if (!state.crm) return;
+  if (state.route === 'inquiries') viewRoot.innerHTML = renderStudentsView();
+  else if (state.route === 'enrollments') viewRoot.innerHTML = renderEnrollmentsView();
+  else if (state.route === 'tasks') viewRoot.innerHTML = renderTasksView();
+  else if (state.route === 'permissions') viewRoot.innerHTML = await renderPermissionsView();
+  else viewRoot.innerHTML = renderHomeView();
 }
 
 function updatePageMeta() {
-  const meta = routeMeta[state.route];
-  pageEyebrow.textContent = meta.eyebrow;
-  pageTitle.textContent = meta.title;
-  pageDescription.textContent = meta.description;
-
-  navList.querySelectorAll('[data-route]').forEach((link) => {
-    link.classList.toggle('active', link.dataset.route === state.route);
-  });
+  const meta = routeMeta[state.route] || routeMeta.home;
+  pageEyebrow.textContent = meta.eyebrow; pageTitle.textContent = meta.title; pageDescription.textContent = meta.description;
+  navList.querySelectorAll('[data-route]').forEach(link => link.classList.toggle('active', link.dataset.route === state.route));
 }
 
-function renderApp() {
-  updatePageMeta();
-  renderMetrics();
-  renderView();
+function renderApp() { updatePageMeta(); renderMetrics(); renderView(); }
+
+async function loadCRM() { 
+  try { 
+    state.crm = await request('/api/crm'); 
+    state.staff = await request('/api/staff'); // Fetch the dropdown data
+    renderApp(); 
+  } catch (err) { showToast(err.message, true); } 
 }
 
-async function request(path, options = {}) {
-  const response = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    ...options
-  });
+navList.addEventListener('click', (e) => {
+  const link = e.target.closest('[data-route]');
+  if (link) { e.preventDefault(); state.route = link.dataset.route; window.history.pushState({}, '', link.href); renderApp(); }
+});
 
-  const data = await response.json();
+window.addEventListener('popstate', () => { state.route = getRouteFromPath(window.location.pathname); renderApp(); });
 
-  if (!response.ok) {
-    throw new Error(data.error || 'Request failed');
-  }
+viewRoot.addEventListener('input', (e) => { if (e.target.id === 'studentSearch') { state.search = e.target.value; renderView(); } });
 
-  return data;
-}
-
-async function loadCRM() {
+// --- DATA ENTRY HANDLERS ---
+async function submitDataForm(e, url) {
+  e.preventDefault();
   try {
-    state.crm = await request('/api/crm');
-    renderApp();
-  } catch (error) {
-    showToast(error.message, true);
-  }
+    await request(url, { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) });
+    e.target.reset(); await loadCRM(); showToast('Saved');
+  } catch (err) { showToast(err.message, true); }
 }
 
-async function submitForm(event, path) {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const payload = Object.fromEntries(formData.entries());
-
-  try {
-    state.crm = await request(path, {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-    event.currentTarget.reset();
-    renderApp();
-    showToast('Saved successfully.');
-  } catch (error) {
-    showToast(error.message, true);
-  }
+async function updateState(path, payload) {
+  try { await request(path, { method: 'PATCH', body: JSON.stringify(payload) }); await loadCRM(); } 
+  catch (err) { showToast(err.message, true); }
 }
 
-async function updateLeadStatus(id, status) {
-  try {
-    state.crm = await request(`/api/leads/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status })
-    });
-    renderApp();
-    showToast('Lead updated.');
-  } catch (error) {
-    showToast(error.message, true);
+viewRoot.addEventListener('change', (e) => {
+  if (e.target.classList.contains('student-select')) return updateState(`/api/students/${e.target.dataset.id}`, { status: e.target.value });
+  // Add listener for counselor dropdown
+  if (e.target.classList.contains('counselor-select')) return updateState(`/api/students/${e.target.dataset.id}`, { counselor: e.target.value });
+  if (e.target.classList.contains('enrollment-select')) return updateState(`/api/enrollments/${e.target.dataset.id}`, { stage: e.target.value });
+  if (e.target.closest('[data-task-id]')) return updateState(`/api/tasks/${e.target.dataset.taskId}`, { completed: e.target.checked });
+});
+
+viewRoot.addEventListener('submit', async (e) => {
+  if (e.target.id === 'studentForm') await submitDataForm(e, '/api/students');
+  if (e.target.id === 'enrollmentForm') await submitDataForm(e, '/api/enrollments');
+  if (e.target.id === 'taskForm') await submitDataForm(e, '/api/tasks');
+  if (e.target.id === 'newUserForm') await submitDataForm(e, '/api/users');
+  // Add listener for Note form
+  if (e.target.id === 'noteForm') await submitDataForm(e, '/api/add-note'); 
+  
+  if (e.target.id === 'importForm') {
+      // ... keep your existing import file logic exactly the same ...
+    e.preventDefault();
+    const file = e.target.querySelector('#importFile')?.files?.[0];
+    if (!file) return showToast('Choose a file.', true);
+    if (!state.spreadsheetModule) state.spreadsheetModule = await import('/vendor/xlsx/xlsx.mjs');
+    const XLSX = state.spreadsheetModule;
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '', raw: false });
+      const students = rows.map(r => {
+        const norm = Object.entries(r).map(([k, v]) => [k.trim().toLowerCase(), v]);
+        const getF = (aliases) => { const m = norm.find(([k]) => aliases.includes(k)); return m ? String(m[1]).trim() : ''; };
+        return {
+          name: getF(['name', 'student name']), course_of_interest: getF(['course']), email: getF(['email']),
+          phone: getF(['phone', 'mobile']), counselor: getF(['counselor', 'owner'])
+        };
+      }).filter(s => s.name && s.course_of_interest);
+      
+      await request('/api/students/import', { method: 'POST', body: JSON.stringify({ students }) });
+      e.target.reset(); await loadCRM(); showToast(`${students.length} imported.`);
+    } catch (err) { showToast('Import failed. Ensure Name and Course columns exist.', true); }
   }
-}
+});
 
-async function updateDealStage(id, stage) {
-  try {
-    state.crm = await request(`/api/deals/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ stage })
-    });
-    renderApp();
-    showToast('Deal moved.');
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
+heroDate.textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
+checkAuth();
 
-async function updateTaskState(id, completed) {
-  try {
-    state.crm = await request(`/api/tasks/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ completed })
-    });
-    renderApp();
-    showToast(completed ? 'Task completed.' : 'Task reopened.');
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
+// --- UPDATE YOUR CLICK LISTENER IN app.js ---
 
-function navigate(route) {
-  const meta = routeMeta[route];
-  if (!meta) {
-    return;
+viewRoot.addEventListener('click', async (e) => {
+  // ... (Keep your existing pagination logic here) ...
+  const pageBtn = e.target.closest('.btn-page');
+  if (pageBtn && !pageBtn.disabled) {
+    const newPage = parseInt(pageBtn.dataset.page);
+    try {
+      const data = await request(`/api/activities?page=${newPage}`);
+      state.crm.activities = data.activities;
+      state.crm.activitiesTotal = data.activitiesTotal;
+      state.crm.activityPage = data.activityPage;
+      renderApp(); 
+    } catch (err) { showToast(err.message, true); }
   }
 
-  state.route = route;
-  window.history.pushState({}, '', meta.path);
-  renderApp();
-}
-
-function pickField(row, aliases) {
-  const normalizedEntries = Object.entries(row).map(([key, value]) => [key.trim().toLowerCase(), value]);
-  for (const alias of aliases) {
-    const match = normalizedEntries.find(([key]) => key === alias);
-    if (match && String(match[1] || '').trim()) {
-      return String(match[1]).trim();
+  // --- ADD THIS NEW DELETE LOGIC ---
+  const deleteBtn = e.target.closest('.user-delete-btn');
+  if (deleteBtn) {
+    // Confirm before deleting
+    if (!confirm('Are you sure you want to permanently delete this staff account?')) return;
+    
+    try {
+      await request(`/api/users/${deleteBtn.dataset.id}`, { method: 'DELETE' });
+      showToast('Staff account deleted.');
+      // FIXED: Use loadCRM() instead of renderApp() so it fetches the fresh staff list!
+      await loadCRM();
+    } catch (err) {
+      showToast(err.message, true);
     }
   }
-
-  return '';
-}
-
-function normalizeImportedLead(row) {
-  const name = pickField(row, ['name', 'contact', 'contact name', 'full name', 'lead name']);
-  const company = pickField(row, ['company', 'organization', 'organisation', 'account', 'account name', 'business']);
-
-  if (!name || !company) {
-    return null;
-  }
-
-  return {
-    name,
-    company,
-    email: pickField(row, ['email', 'email address', 'mail']),
-    phone: pickField(row, ['phone', 'phone number', 'mobile', 'contact number']),
-    status: normalizeStatus(pickField(row, ['status', 'stage'])),
-    source: pickField(row, ['source', 'lead source', 'channel']),
-    owner: pickField(row, ['owner', 'assigned to', 'rep', 'sales rep']),
-    estimatedValue: sanitizeNumeric(pickField(row, ['estimated value', 'value', 'deal value', 'amount'])),
-    lastContact: pickField(row, ['last contact', 'last contacted', 'contacted on', 'date']),
-    tags: pickField(row, ['tags', 'labels']),
-    notes: pickField(row, ['notes', 'comment', 'comments', 'description'])
-  };
-}
-
-async function loadSpreadsheetModule() {
-  if (!state.spreadsheetModule) {
-    state.spreadsheetModule = await import('/vendor/xlsx/xlsx.mjs');
-  }
-
-  return state.spreadsheetModule;
-}
-
-async function importLeadsFromFile(file) {
-  const XLSX = await loadSpreadsheetModule();
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
-  const firstSheetName = workbook.SheetNames[0];
-
-  if (!firstSheetName) {
-    throw new Error('The uploaded file does not contain any sheets.');
-  }
-
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
-    defval: '',
-    raw: false
-  });
-
-  const leads = rows.map(normalizeImportedLead).filter(Boolean);
-
-  if (!leads.length) {
-    throw new Error('No valid leads were found. Include at least Name and Company columns.');
-  }
-
-  state.crm = await request('/api/leads/import', {
-    method: 'POST',
-    body: JSON.stringify({ leads })
-  });
-
-  state.search = '';
-  state.statusFilter = 'all';
-  renderApp();
-  showToast(`${leads.length} lead${leads.length === 1 ? '' : 's'} imported.`);
-}
-
-navList.addEventListener('click', (event) => {
-  const link = event.target.closest('[data-route]');
-  if (!link) {
-    return;
-  }
-
-  event.preventDefault();
-  navigate(link.dataset.route);
 });
 
-window.addEventListener('popstate', () => {
-  state.route = getRouteFromPath(window.location.pathname);
-  renderApp();
-});
+// ==========================================
+// NEW FRONTEND LOGIC FOR VIEWING & EDITING NOTES
+// ==========================================
 
-viewRoot.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-navigate]');
-  if (!button) {
-    return;
-  }
+window.openHistoryModal = function(studentId) {
+    const student = state.crm.students.find(s => s.id === studentId);
+    if (!student) return;
 
-  navigate(button.dataset.navigate);
-});
+    document.getElementById('historyModalTitle').innerText = 'Call History: ' + escapeHtml(student.name);
+    const contentDiv = document.getElementById('historyContent');
 
-viewRoot.addEventListener('input', (event) => {
-  if (event.target.id === 'leadSearch') {
-    state.search = event.target.value;
-    renderView();
-  }
-});
+    // Parse the saved notes
+    let notesArr = [];
+    try { if (student.notes) notesArr = JSON.parse(student.notes); } catch(e) {}
 
-viewRoot.addEventListener('change', (event) => {
-  if (event.target.id === 'leadStatusFilter') {
-    state.statusFilter = event.target.value;
-    renderView();
-    return;
-  }
+    if (notesArr.length === 0) {
+        contentDiv.innerHTML = '<div class="empty-panel">No calls or notes added yet.</div>';
+    } else {
+        // Reverse the array so the newest notes show up at the top
+        contentDiv.innerHTML = notesArr.slice().reverse().map(n => `
+            <div class="activity-item" style="border: 1px solid var(--line); padding: 14px; border-radius: 12px; background: var(--bg);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <strong style="color: var(--accent);">👤 ${escapeHtml(n.author)}</strong>
+                    <small style="color: var(--muted);">${new Date(n.date).toLocaleString()}</small>
+                </div>
+                
+                <p id="view-note-${n.id}" style="margin: 0; font-size: 0.95rem; line-height: 1.5;">${escapeHtml(n.text)}</p>
+                
+                <textarea id="edit-note-${n.id}" style="display:none; width: 100%; margin-bottom: 8px;" rows="3">${escapeHtml(n.text)}</textarea>
+                
+                <div style="margin-top: 12px; text-align: right;">
+                    <button id="btn-edit-${n.id}" onclick="toggleEditNote('${n.id}')" class="btn-small" style="background: transparent; color: var(--gold);">✏️ Edit Note</button>
+                    <button id="btn-save-${n.id}" onclick="saveNoteEdit('${student.id}', '${n.id}')" class="btn-small" style="display:none; background: var(--accent-strong); color: #000;">💾 Save Changes</button>
+                </div>
+            </div>
+        `).join('');
+    }
 
-  const leadSelect = event.target.closest('[data-lead-id]');
-  if (leadSelect) {
-    updateLeadStatus(leadSelect.dataset.leadId, leadSelect.value);
-    return;
-  }
+    document.getElementById('historyModal').style.display = 'flex';
+};
 
-  const dealSelect = event.target.closest('[data-deal-id]');
-  if (dealSelect) {
-    updateDealStage(dealSelect.dataset.dealId, dealSelect.value);
-    return;
-  }
+// Swaps the plain text for a text box
+window.toggleEditNote = function(noteId) {
+    document.getElementById(`view-note-${noteId}`).style.display = 'none';
+    document.getElementById(`btn-edit-${noteId}`).style.display = 'none';
+    document.getElementById(`edit-note-${noteId}`).style.display = 'block';
+    document.getElementById(`btn-save-${noteId}`).style.display = 'inline-block';
+};
 
-  const taskCheckbox = event.target.closest('[data-task-id]');
-  if (taskCheckbox) {
-    updateTaskState(taskCheckbox.dataset.taskId, taskCheckbox.checked);
-  }
-});
+// Sends the edited text to the backend
+window.saveNoteEdit = async function(studentId, noteId) {
+    const newText = document.getElementById(`edit-note-${noteId}`).value;
+    try {
+        await request('/api/edit-note', {
+            method: 'PATCH',
+            body: JSON.stringify({ student_id: studentId, note_id: noteId, new_text: newText })
+        });
+        showToast('Note updated successfully!');
+        await loadCRM(); // Refresh the data quietly in the background
+        openHistoryModal(studentId); // Re-open the modal to show the updated list
+    } catch (err) {
+        showToast(err.message, true);
+    }
+};
 
-viewRoot.addEventListener('submit', async (event) => {
-  if (event.target.id === 'leadForm') {
-    await submitForm(event, '/api/leads');
-    return;
-  }
-
-  if (event.target.id === 'dealForm') {
-    await submitForm(event, '/api/deals');
-    return;
-  }
-
-  if (event.target.id === 'taskForm') {
-    await submitForm(event, '/api/tasks');
-    return;
-  }
-
-  if (event.target.id === 'leadImportForm') {
-    event.preventDefault();
-    const fileInput = event.target.querySelector('#leadImportFile');
-    const file = fileInput?.files?.[0];
-
-    if (!file) {
-      showToast('Choose a file to import.', true);
-      return;
+// ==========================================
+// ADMIN LOGIC: DELETE STUDENT
+// ==========================================
+window.deleteStudent = async function(studentId) {
+    // 1. Force the admin to confirm (prevents accidental clicks)
+    if (!confirm('⚠️ Are you sure you want to completely delete this student? This action cannot be undone.')) {
+        return;
     }
 
     try {
-      await importLeadsFromFile(file);
-      event.target.reset();
-    } catch (error) {
-      showToast(error.message, true);
+        // 2. Fire the secure request to the backend
+        await request(`/api/students/${studentId}`, { 
+            method: 'DELETE' 
+        });
+        
+        // 3. Show success message and refresh the table
+        showToast('Student deleted successfully.');
+        await loadCRM(); 
+    } catch (err) {
+        // If a counselor somehow triggers this, it will throw the 403 Forbidden error here
+        showToast(err.message, true);
     }
-  }
-});
-
-heroDate.textContent = new Date().toLocaleDateString('en-US', {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric'
-});
-
-renderApp();
-loadCRM();
+};

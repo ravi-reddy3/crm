@@ -1,614 +1,474 @@
-import { createServer } from 'http';
-import { promises as fs } from 'fs';
+import 'dotenv/config';
+
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import pool from './db.js';
+import axios from 'axios';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const publicDir = path.join(__dirname, 'public');
-const dataFile = path.join(__dirname, 'data', 'store.json');
-const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || 'localhost';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const PORT = process.env.PORT || 3010;
+const JWT_SECRET = 'unicus_super_secret_key_2026';
 
-const leadStatuses = ['new', 'contacted', 'qualified', 'proposal', 'customer'];
-const dealStages = ['discovery', 'proposal', 'negotiation', 'closed-won', 'closed-lost'];
+app.use(express.json({ limit: '50mb' }));
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/vendor', express.static(path.join(__dirname, 'node_modules')));
 
-const defaultData = {
-  leads: [
-    {
-      id: 'lead-101',
-      name: 'Ava Thompson',
-      company: 'Northstar Retail',
-      email: 'ava@northstarretail.com',
-      phone: '+1 (415) 555-0189',
-      status: 'qualified',
-      source: 'Website',
-      owner: 'Riya',
-      estimatedValue: 48000,
-      lastContact: '2026-04-20',
-      tags: ['priority', 'enterprise'],
-      notes: 'Asked for rollout plan and migration support.'
-    },
-    {
-      id: 'lead-102',
-      name: 'Marcus Chen',
-      company: 'BluePeak Logistics',
-      email: 'marcus@bluepeaklogistics.com',
-      phone: '+1 (312) 555-0170',
-      status: 'contacted',
-      source: 'Referral',
-      owner: 'Dev',
-      estimatedValue: 18000,
-      lastContact: '2026-04-18',
-      tags: ['logistics'],
-      notes: 'Interested in task automation and SLA reporting.'
-    },
-    {
-      id: 'lead-103',
-      name: 'Sofia Patel',
-      company: 'Luma Health Studio',
-      email: 'sofia@lumahealthstudio.com',
-      phone: '+1 (646) 555-0192',
-      status: 'proposal',
-      source: 'LinkedIn',
-      owner: 'Riya',
-      estimatedValue: 32000,
-      lastContact: '2026-04-21',
-      tags: ['upsell'],
-      notes: 'Needs contract review with legal before approval.'
-    },
-    {
-      id: 'lead-104',
-      name: 'Noah Rivera',
-      company: 'Atlas Build Co.',
-      email: 'noah@atlasbuild.co',
-      phone: '+1 (206) 555-0138',
-      status: 'new',
-      source: 'Campaign',
-      owner: 'Maya',
-      estimatedValue: 22000,
-      lastContact: '2026-04-22',
-      tags: ['inbound'],
-      notes: 'Fresh inbound from spring campaign.'
-    },
-    {
-      id: 'lead-105',
-      name: 'Emma Brooks',
-      company: 'Horizon Advisory',
-      email: 'emma@horizonadvisory.com',
-      phone: '+1 (917) 555-0114',
-      status: 'customer',
-      source: 'Conference',
-      owner: 'Maya',
-      estimatedValue: 65000,
-      lastContact: '2026-04-17',
-      tags: ['customer', 'expansion'],
-      notes: 'Existing customer evaluating a second workspace.'
-    }
-  ],
-  deals: [
-    {
-      id: 'deal-201',
-      title: 'Northstar Rollout',
-      company: 'Northstar Retail',
-      owner: 'Riya',
-      stage: 'proposal',
-      value: 48000,
-      health: 'Strong',
-      expectedClose: '2026-05-02'
-    },
-    {
-      id: 'deal-202',
-      title: 'BluePeak Workflow Suite',
-      company: 'BluePeak Logistics',
-      owner: 'Dev',
-      stage: 'discovery',
-      value: 18000,
-      health: 'Warm',
-      expectedClose: '2026-05-09'
-    },
-    {
-      id: 'deal-203',
-      title: 'Luma Expansion Plan',
-      company: 'Luma Health Studio',
-      owner: 'Riya',
-      stage: 'negotiation',
-      value: 32000,
-      health: 'At Risk',
-      expectedClose: '2026-04-30'
-    },
-    {
-      id: 'deal-204',
-      title: 'Horizon Advisory Renewals',
-      company: 'Horizon Advisory',
-      owner: 'Maya',
-      stage: 'closed-won',
-      value: 65000,
-      health: 'Won',
-      expectedClose: '2026-04-15'
-    }
-  ],
-  tasks: [
-    {
-      id: 'task-301',
-      title: 'Prepare Northstar pricing sheet',
-      owner: 'Riya',
-      dueDate: '2026-04-24',
-      completed: false,
-      priority: 'High'
-    },
-    {
-      id: 'task-302',
-      title: 'Send BluePeak discovery recap',
-      owner: 'Dev',
-      dueDate: '2026-04-23',
-      completed: false,
-      priority: 'Medium'
-    },
-    {
-      id: 'task-303',
-      title: 'Review Luma redlines',
-      owner: 'Riya',
-      dueDate: '2026-04-25',
-      completed: false,
-      priority: 'High'
-    },
-    {
-      id: 'task-304',
-      title: 'Check Atlas qualification notes',
-      owner: 'Maya',
-      dueDate: '2026-04-26',
-      completed: true,
-      priority: 'Low'
-    }
-  ],
-  activities: [
-    {
-      id: 'activity-401',
-      type: 'deal',
-      title: 'Northstar Rollout moved to proposal',
-      detail: 'Riya updated the deal after the stakeholder review.',
-      createdAt: '2026-04-22T09:20:00.000Z'
-    },
-    {
-      id: 'activity-402',
-      type: 'lead',
-      title: 'Atlas Build Co. added as a new inbound lead',
-      detail: 'Lead source recorded from spring campaign form.',
-      createdAt: '2026-04-22T08:05:00.000Z'
-    },
-    {
-      id: 'activity-403',
-      type: 'task',
-      title: 'BluePeak discovery recap scheduled',
-      detail: 'Task assigned to Dev for follow-up email.',
-      createdAt: '2026-04-21T16:15:00.000Z'
-    }
-  ]
+// --- HELPERS ---
+function createId(prefix) { return `${prefix}-${Math.random().toString(36).slice(2, 10)}`; }
+function currency(value) { return Number.isFinite(Number(value)) ? Number(value) : 0; }
+function formatToday() { return new Date().toISOString().slice(0, 10); }
+async function logActivity(type, title, detail) {
+  await pool.query(`INSERT INTO activities (id, type, title, detail, created_at) VALUES ($1, $2, $3, $4, NOW())`, [createId('activity'), type, title, detail]);
+}
+
+// --- AUTH MIDDLEWARE ---
+const requireAuth = (req, res, next) => {
+  const token = req.cookies.jwt;
+  if (!token) return res.status(401).json({ error: 'Unauthorized. Please log in.' });
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(401).json({ error: 'Invalid token.' });
+    req.user = decoded; 
+    next();
+  });
 };
 
-const mimeTypes = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.ico': 'image/x-icon'
+const requireRole = (roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden.' });
+    next();
+  };
 };
 
-async function ensureDataFile() {
+// --- AUTH ROUTES ---
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
   try {
-    await fs.access(dataFile);
-  } catch {
-    await fs.mkdir(path.dirname(dataFile), { recursive: true });
-    await fs.writeFile(dataFile, JSON.stringify(defaultData, null, 2));
+    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    const user = result.rows[0];
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ error: 'Invalid credentials.' });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+    res.cookie('jwt', token, { httpOnly: true, secure: false, maxAge: 8 * 60 * 60 * 1000 });
+    res.json({ message: 'Logged in', user: { username: user.username, role: user.role } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/logout', (req, res) => { res.clearCookie('jwt'); res.json({ message: 'Logged out' }); });
+app.get('/api/me', requireAuth, (req, res) => { res.json({ user: req.user }); });
+
+// --- PERMISSIONS ROUTES ---
+app.get('/api/users', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, username, role FROM users');
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/users', requireAuth, requireRole(['admin']), async (req, res) => {
+  const { username, password, role } = req.body;
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    await pool.query('INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)', [createId('usr'), username, hash, role]);
+    res.json({ message: 'User created' });
+  } catch (err) { res.status(500).json({ error: 'Username might already exist.' }); }
+});
+
+// --- ADD THIS TO YOUR PERMISSIONS ROUTES IN server.js ---
+
+app.delete('/api/users/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    // Prevent the admin from accidentally deleting their own account
+    if (req.user.id === req.params.id) {
+      return res.status(400).json({ error: 'You cannot delete your own account.' });
+    }
+    
+    await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
+    res.json({ message: 'User deleted successfully.' });
+  } catch (err) { 
+    res.status(500).json({ error: err.message }); 
   }
-}
+});
 
-async function readStore() {
-  await ensureDataFile();
-  const raw = await fs.readFile(dataFile, 'utf8');
-  return JSON.parse(raw);
-}
+// --- FETCH STAFF FOR DROPDOWNS ---
+app.get('/api/staff', requireAuth, async (req, res) => {
+  try {
+    // Returns usernames so we can populate the dropdowns
+    const result = await pool.query('SELECT username, role FROM users');
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-async function writeStore(data) {
-  await fs.writeFile(dataFile, JSON.stringify(data, null, 2));
-}
+// --- FETCH PAGINATED ACTIVITIES ---
+app.get('/api/activities', requireAuth, async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = 6; // Limit to 6 per page as requested
+  const offset = (page - 1) * limit;
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
-  response.end(JSON.stringify(payload));
-}
+  try {
+    const [activitiesRes, countRes] = await Promise.all([
+      pool.query('SELECT * FROM activities ORDER BY created_at DESC LIMIT $1 OFFSET $2', [limit, offset]),
+      pool.query('SELECT COUNT(*) FROM activities')
+    ]);
 
-function sendText(response, statusCode, payload) {
-  response.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
-  response.end(payload);
-}
-
-function createId(prefix) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function currency(value) {
-  return Number.isFinite(Number(value)) ? Number(value) : 0;
-}
-
-function sortByDateDescending(items, key) {
-  return [...items].sort((left, right) => new Date(right[key]).getTime() - new Date(left[key]).getTime());
-}
-
-function buildDashboard(data) {
-  const openDeals = data.deals.filter((deal) => !deal.stage.startsWith('closed-'));
-  const completedTasks = data.tasks.filter((task) => task.completed).length;
-  const conversionBase = data.deals.length || 1;
-  const wonDeals = data.deals.filter((deal) => deal.stage === 'closed-won').length;
-  const leadsByStatus = leadStatuses.map((status) => ({
-    status,
-    count: data.leads.filter((lead) => lead.status === status).length
-  }));
-
-  return {
-    totalContacts: data.leads.length,
-    activeDeals: openDeals.length,
-    pipelineValue: openDeals.reduce((sum, deal) => sum + currency(deal.value), 0),
-    taskCompletionRate: Math.round((completedTasks / (data.tasks.length || 1)) * 100),
-    wonDeals,
-    conversionRate: Math.round((wonDeals / conversionBase) * 100),
-    leadsByStatus
-  };
-}
-
-function buildResponse(data) {
-  return {
-    dashboard: buildDashboard(data),
-    leads: sortByDateDescending(data.leads, 'lastContact'),
-    deals: sortByDateDescending(data.deals, 'expectedClose'),
-    tasks: [...data.tasks].sort((left, right) => new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime()),
-    activities: sortByDateDescending(data.activities, 'createdAt').slice(0, 10)
-  };
-}
-
-function parseRequestBody(request) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-
-    request.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 1_000_000) {
-        reject(new Error('Payload too large'));
-        request.destroy();
-      }
+    res.json({
+      activities: activitiesRes.rows,
+      activitiesTotal: parseInt(countRes.rows[0].count),
+      activityPage: page
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    request.on('end', () => {
-      if (!body) {
-        resolve({});
-        return;
-      }
+// --- META ADS WEBHOOK CONFIG ---
+const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN; // You will enter this in the Meta dashboard
+const META_PAGE_ACCESS_TOKEN = process.env.META_PAGE_ACCESS_TOKEN; 
 
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        reject(new Error('Invalid JSON body'));
-      }
-    });
+// 1. Webhook Verification (Meta hits this when you click "Verify and Save")
+app.get('/webhook/meta', (req, res) => {
+    if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === META_VERIFY_TOKEN) {
+        console.log("✅ Meta Webhook Verified Successfully!");
+        res.status(200).send(req.query['hub.challenge']);
+    } else {
+        console.error("❌ Meta Webhook Verification Failed");
+        res.sendStatus(403);
+    }
+});
 
-    request.on('error', reject);
-  });
+// 2. Receive Lead Ping from Meta (Meta hits this when a user submits a form)
+app.post('/webhook/meta', async (req, res) => {
+    const body = req.body;
+
+    if (body.object === 'page') {
+        // Meta expects a fast 200 OK response, so acknowledge immediately
+        res.status(200).send('EVENT_RECEIVED');
+
+        // Iterate over the entries (there may be multiple if batched)
+        for (const entry of body.entry) {
+            for (const change of entry.changes) {
+                if (change.field === 'leadgen') {
+                    const leadId = change.value.leadgen_id;
+                    console.log(`\n🔔 Webhook triggered! New Lead ID: ${leadId}`);
+                    await processMetaLead(leadId);
+                }
+            }
+        }
+    } else {
+        res.sendStatus(404);
+    }
+});
+
+// 3. Fetch Lead Details and Save to PostgreSQL
+async function processMetaLead(leadId) {
+    try {
+        console.log("🔍 Checking Token:", META_PAGE_ACCESS_TOKEN ? "Token exists!" : "Token is UNDEFINED!");
+
+        // Call Meta Graph API (v25.0) for the actual form data using your Permanent Token
+        const response = await axios.get(`https://graph.facebook.com/v25.0/${leadId}?access_token=${META_PAGE_ACCESS_TOKEN}`);
+        const leadData = response.data.field_data;
+
+        console.log("leadData:\n", JSON.stringify(leadData, null, 2));
+        
+        // Helper function to extract specific fields from Meta's array format
+        const getField = (name) => leadData.find(f => f.name === name)?.values[0] || '';
+
+        // Map Meta fields to your CRM schema
+        const name = getField('full_name') || getField('first_name') || 'Unknown Lead';
+        const email = getField('email');
+        const phone = getField('phone_number');
+        
+        // If your Meta form has a custom question, map it here. Otherwise, use a default.
+        const course = getField('course_of_interest') || 'Meta Ads Inquiry'; 
+
+        const id = `stu-${Math.random().toString(36).slice(2, 10)}`;
+        const today = new Date().toISOString().slice(0, 10);
+
+        console.log(`📝 Processing Lead: ${name} (${email})`);
+
+        // Insert into the students table
+        await pool.query(
+            `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [id, name, course, email, phone, 'new', 'Meta Ads', 'Unassigned', 0, today]
+        );
+
+        // Insert into the students table
+        await pool.query(
+            `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [id, name, course, email, phone, 'new', 'Meta Ads', 'Unassigned', 0, today]
+        );
+
+        // NEW: Automatically drop Meta Leads straight into the Kanban Board!
+        await pool.query(
+            `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [createId('enr'), name, course, 'Unassigned', 'new', 0, today]
+        );
+
+        // Log the activity so it shows up on your CRM dashboard
+        await pool.query(
+            `INSERT INTO activities (id, type, title, detail, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+            [`act-${Math.random().toString(36).slice(2, 10)}`, 'student', `Meta Lead captured: ${name}`, `Auto-imported from Facebook.`]
+        );
+
+        console.log(`✅ Lead successfully saved to database!`);
+
+    } catch (error) {
+        console.error('❌ Error processing Meta lead:', error.response?.data || error.message);
+    }
 }
 
-function formatToday() {
-  return new Date().toISOString().slice(0, 10);
-}
+// --- CRM DATA ROUTES ---
+app.get('/api/crm', requireAuth, async (req, res) => {
+  try {
+    let studentQuery = 'SELECT * FROM students ORDER BY last_contact DESC';
+    let enrollQuery = 'SELECT * FROM enrollments ORDER BY batch_start_date DESC';
+    let taskQuery = 'SELECT * FROM tasks ORDER BY due_date ASC';
+    let activityQuery = 'SELECT * FROM activities ORDER BY created_at DESC LIMIT 6 OFFSET 0';
+    let activityCountQuery = 'SELECT COUNT(*) FROM activities';
+    const params = [];
 
-function normalizeDate(value) {
-  const raw = String(value || '').trim();
-  if (!raw) {
-    return formatToday();
-  }
-
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? formatToday() : parsed.toISOString().slice(0, 10);
-}
-
-function normalizeTags(value) {
-  if (Array.isArray(value)) {
-    return value.map((tag) => String(tag).trim()).filter(Boolean);
-  }
-
-  return String(value || '')
-    .split(',')
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-}
-
-function sanitizeLeadPayload(body = {}) {
-  return {
-    id: createId('lead'),
-    name: String(body.name || '').trim(),
-    company: String(body.company || '').trim(),
-    email: String(body.email || '').trim(),
-    phone: String(body.phone || '').trim(),
-    status: leadStatuses.includes(body.status) ? body.status : 'new',
-    source: String(body.source || 'Manual').trim() || 'Manual',
-    owner: String(body.owner || 'Unassigned').trim() || 'Unassigned',
-    estimatedValue: currency(body.estimatedValue),
-    lastContact: normalizeDate(body.lastContact),
-    tags: normalizeTags(body.tags),
-    notes: String(body.notes || '').trim()
-  };
-}
-
-function pushActivity(data, activity) {
-  data.activities.unshift({
-    id: createId('activity'),
-    createdAt: new Date().toISOString(),
-    ...activity
-  });
-  data.activities = data.activities.slice(0, 20);
-}
-
-async function handleApi(request, response) {
-  const url = new URL(request.url, `http://${request.headers.host}`);
-  const store = await readStore();
-
-  if (request.method === 'GET' && url.pathname === '/api/crm') {
-    sendJson(response, 200, buildResponse(store));
-    return;
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/leads') {
-    const body = await parseRequestBody(request);
-    if (!body.name || !body.company) {
-      sendJson(response, 400, { error: 'Name and company are required.' });
-      return;
+    if (req.user.role === 'counselor') {
+      studentQuery = 'SELECT * FROM students WHERE counselor = $1 ORDER BY last_contact DESC';
+      enrollQuery = 'SELECT * FROM enrollments WHERE counselor = $1 ORDER BY batch_start_date DESC';
+      taskQuery = 'SELECT * FROM tasks WHERE owner = $1 ORDER BY due_date ASC';
+      params.push(req.user.username);
     }
 
-    const lead = sanitizeLeadPayload({
-      ...body,
-      lastContact: formatToday()
-    });
+    const [studentsRes, enrollmentsRes, tasksRes, activitiesRes, activitiesCountRes] = await Promise.all([
+      pool.query(studentQuery, params),
+      pool.query(enrollQuery, params),
+      pool.query(taskQuery, params),
+      pool.query(activityQuery),
+      pool.query(activityCountQuery)
+    ]);
 
-    store.leads.unshift(lead);
-    pushActivity(store, {
-      type: 'lead',
-      title: `${lead.company} added as a ${lead.status} lead`,
-      detail: `${lead.owner} now owns the account.`
-    });
+    const data = { 
+      students: studentsRes.rows, 
+      enrollments: enrollmentsRes.rows, 
+      tasks: tasksRes.rows, 
+      activities: activitiesRes.rows,
+      activitiesTotal: parseInt(activitiesCountRes.rows[0].count),
+      activityPage: 1
+    };
+    const activeEnrollments = data.enrollments.filter((e) => e.stage !== 'dropped' && e.stage !== 'enrolled');
+    const wonEnrollments = data.enrollments.filter((e) => e.stage === 'enrolled').length;
 
-    await writeStore(store);
-    sendJson(response, 201, buildResponse(store));
-    return;
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/leads/import') {
-    const body = await parseRequestBody(request);
-    const incomingLeads = Array.isArray(body.leads) ? body.leads : [];
-    const importedLeads = incomingLeads
-      .map((item) => sanitizeLeadPayload(item))
-      .filter((lead) => lead.name && lead.company);
-
-    if (!importedLeads.length) {
-      sendJson(response, 400, { error: 'No valid leads were provided for import.' });
-      return;
-    }
-
-    store.leads.unshift(...importedLeads);
-    pushActivity(store, {
-      type: 'lead',
-      title: `${importedLeads.length} lead${importedLeads.length === 1 ? '' : 's'} imported`,
-      detail: 'Spreadsheet records were added to the lead tracker.'
-    });
-
-    await writeStore(store);
-    sendJson(response, 201, buildResponse(store));
-    return;
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/deals') {
-    const body = await parseRequestBody(request);
-    if (!body.title || !body.company) {
-      sendJson(response, 400, { error: 'Deal title and company are required.' });
-      return;
-    }
-
-    const deal = {
-      id: createId('deal'),
-      title: String(body.title).trim(),
-      company: String(body.company).trim(),
-      owner: String(body.owner || 'Unassigned').trim() || 'Unassigned',
-      stage: dealStages.includes(body.stage) ? body.stage : 'discovery',
-      value: currency(body.value),
-      health: String(body.health || 'Warm').trim() || 'Warm',
-      expectedClose: String(body.expectedClose || formatToday())
+    const dashboard = {
+      totalContacts: data.students.length,
+      activeDeals: activeEnrollments.length,
+      pipelineValue: activeEnrollments.reduce((sum, e) => sum + Number(e.fee_collected || 0), 0),
+      wonDeals: wonEnrollments,
+      conversionRate: Math.round((wonEnrollments / (data.enrollments.length || 1)) * 100),
+      leadsByStatus: ['new', 'contacted', 'attended-demo', 'enrolled'].map((status) => ({ status, count: data.students.filter((s) => s.status === status).length }))
     };
 
-    store.deals.unshift(deal);
-    pushActivity(store, {
-      type: 'deal',
-      title: `${deal.title} created in ${deal.stage}`,
-      detail: `${deal.company} added to the pipeline at $${deal.value.toLocaleString()}.`
-    });
+    res.json({ dashboard, ...data, currentUser: req.user });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    await writeStore(store);
-    sendJson(response, 201, buildResponse(store));
-    return;
-  }
+app.post('/api/students', requireAuth, async (req, res) => {
+  const b = req.body;
+  const owner = req.user.role === 'counselor' ? req.user.username : (b.counselor || 'Unassigned');
+  try {
+    const studentId = createId('stu');
+    const status = b.status || 'new';
+    
+    // 1. Insert into Tracker
+    await pool.query(
+      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [studentId, b.name, b.course_of_interest, b.email, b.phone, status, b.source, owner, currency(b.expected_fee), formatToday(), b.background, b.notes]
+    );
 
-  if (request.method === 'POST' && url.pathname === '/api/tasks') {
-    const body = await parseRequestBody(request);
-    if (!body.title) {
-      sendJson(response, 400, { error: 'Task title is required.' });
-      return;
+    // 2. NEW: Instantly sync to the Kanban Pipeline Board!
+    await pool.query(
+      `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [createId('enr'), b.name, b.course_of_interest, owner, status, 0, formatToday()]
+    );
+
+    await logActivity('student', `${b.name} added`, `Assigned to ${owner}`);
+    res.json({ message: 'Saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/students/import', requireAuth, async (req, res) => {
+  const students = req.body.students || [];
+  try {
+    let count = 0;
+    for (const s of students) {
+      if (s.name && s.course_of_interest) {
+        const owner = req.user.role === 'counselor' ? req.user.username : (s.counselor || 'Unassigned');
+        await pool.query(
+          `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [createId('stu'), s.name, s.course_of_interest, s.email, s.phone, s.status || 'new', s.source, owner, currency(s.expected_fee), formatToday(), s.background, s.notes]
+        );
+        count++;
+      }
     }
+    await logActivity('student', `${count} imported`, 'Bulk import processed.');
+    res.json({ message: 'Imported' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    const task = {
-      id: createId('task'),
-      title: String(body.title).trim(),
-      owner: String(body.owner || 'Unassigned').trim() || 'Unassigned',
-      dueDate: String(body.dueDate || formatToday()),
-      completed: false,
-      priority: String(body.priority || 'Medium').trim() || 'Medium'
-    };
+app.post('/api/enrollments', requireAuth, async (req, res) => {
+  const b = req.body;
+  const owner = req.user.role === 'counselor' ? req.user.username : (b.counselor || 'Unassigned');
+  try {
+    await pool.query(
+      `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [createId('enr'), b.student_name, b.course_name, owner, b.stage || 'inquiry', currency(b.fee_collected), b.batch_start_date || formatToday()]
+    );
+    await logActivity('enrollment', `${b.student_name} pipeline added`, `Managed by ${owner}`);
+    res.json({ message: 'Saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    store.tasks.unshift(task);
-    pushActivity(store, {
-      type: 'task',
-      title: `Task created: ${task.title}`,
-      detail: `${task.owner} owns this ${task.priority.toLowerCase()} priority task.`
-    });
+app.post('/api/tasks', requireAuth, async (req, res) => {
+  const b = req.body;
+  const owner = req.user.role === 'counselor' ? req.user.username : (b.owner || 'Unassigned');
+  try {
+    await pool.query(`INSERT INTO tasks (id, title, owner, due_date, priority) VALUES ($1, $2, $3, $4, $5)`,
+      [createId('tsk'), b.title, owner, b.due_date || formatToday(), b.priority || 'Medium']);
+    await logActivity('task', `Task created: ${b.title}`, `Assigned to ${owner}`);
+    res.json({ message: 'Saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    await writeStore(store);
-    sendJson(response, 201, buildResponse(store));
-    return;
-  }
-
-  const leadMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/);
-  if (request.method === 'PATCH' && leadMatch) {
-    const body = await parseRequestBody(request);
-    const lead = store.leads.find((item) => item.id === leadMatch[1]);
-
-    if (!lead) {
-      sendJson(response, 404, { error: 'Lead not found.' });
-      return;
-    }
-
-    if (leadStatuses.includes(body.status)) {
-      lead.status = body.status;
-    }
-
-    lead.lastContact = formatToday();
-    pushActivity(store, {
-      type: 'lead',
-      title: `${lead.company} moved to ${lead.status}`,
-      detail: `Lead status updated for ${lead.name}.`
-    });
-
-    await writeStore(store);
-    sendJson(response, 200, buildResponse(store));
-    return;
-  }
-
-  const dealMatch = url.pathname.match(/^\/api\/deals\/([^/]+)$/);
-  if (request.method === 'PATCH' && dealMatch) {
-    const body = await parseRequestBody(request);
-    const deal = store.deals.find((item) => item.id === dealMatch[1]);
-
-    if (!deal) {
-      sendJson(response, 404, { error: 'Deal not found.' });
-      return;
-    }
-
-    if (dealStages.includes(body.stage)) {
-      deal.stage = body.stage;
-    }
-
-    pushActivity(store, {
-      type: 'deal',
-      title: `${deal.title} moved to ${deal.stage}`,
-      detail: `${deal.company} is now tracked in the updated stage.`
-    });
-
-    await writeStore(store);
-    sendJson(response, 200, buildResponse(store));
-    return;
-  }
-
-  const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
-  if (request.method === 'PATCH' && taskMatch) {
-    const body = await parseRequestBody(request);
-    const task = store.tasks.find((item) => item.id === taskMatch[1]);
-
-    if (!task) {
-      sendJson(response, 404, { error: 'Task not found.' });
-      return;
-    }
-
-    if (typeof body.completed === 'boolean') {
-      task.completed = body.completed;
-    }
-
-    pushActivity(store, {
-      type: 'task',
-      title: `${task.title} marked ${task.completed ? 'complete' : 'active'}`,
-      detail: `${task.owner} updated the task state.`
-    });
-
-    await writeStore(store);
-    sendJson(response, 200, buildResponse(store));
-    return;
-  }
-
-  sendJson(response, 404, { error: 'API route not found.' });
-}
-
-async function serveStatic(request, response) {
-  const url = new URL(request.url, `http://${request.headers.host}`);
-  const requestPath = url.pathname === '/' ? '/index.html' : url.pathname;
-
-  if (requestPath.startsWith('/vendor/xlsx/')) {
-    const vendorPath = path.normalize(path.join(nodeModulesDir, requestPath.replace('/vendor/', '')));
-
-    if (!vendorPath.startsWith(nodeModulesDir)) {
-      sendText(response, 403, 'Forbidden');
-      return;
-    }
+// ==========================================
+// 1. UPDATED ADD NOTE ROUTE (Fixes #1 and #3)
+// ==========================================
+app.post('/api/add-note', requireAuth, async (req, res) => {
+    const { student_id, comment } = req.body;
+    const author = req.user.username; // FEATURE 1: Grabs the actual logged-in user!
 
     try {
-      const data = await fs.readFile(vendorPath);
-      const ext = path.extname(vendorPath).toLowerCase();
-      response.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
-      response.end(data);
-      return;
-    } catch {
-      sendText(response, 404, 'Not Found');
-      return;
+        // Fetch the student's current notes array
+        const studentRes = await pool.query('SELECT notes, name FROM students WHERE id = $1', [student_id]);
+        if (studentRes.rows.length === 0) return res.status(404).json({ error: 'Student not found' });
+
+        const student = studentRes.rows[0];
+        let notesArray = [];
+        if (student.notes) {
+            try { notesArray = JSON.parse(student.notes); } catch (e) { notesArray = []; }
+        }
+
+        // Create the new note object and add it to the history
+        const newNote = {
+            id: createId('not'),
+            author: author,
+            text: comment,
+            date: new Date().toISOString()
+        };
+        notesArray.push(newNote);
+
+        // Save the updated JSON array back to the student's database row
+        await pool.query('UPDATE students SET notes = $1, last_contact = NOW() WHERE id = $2', [JSON.stringify(notesArray), student_id]);
+
+        // Log it to the global activity feed with the real user's name
+        await pool.query(
+            `INSERT INTO activities (id, type, title, detail, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+            [createId('act'), 'note', `Note by ${author} for ${student.name}`, comment]
+        );
+
+        res.json({ message: 'Note saved successfully' });
+    } catch (error) {
+        console.error('Error saving note:', error);
+        res.status(500).json({ error: 'Error saving note' });
     }
-  }
+});
 
-  const filePath = path.normalize(path.join(publicDir, requestPath));
+// ==========================================
+// 2. NEW EDIT NOTE ROUTE (Fixes #2)
+// ==========================================
+app.patch('/api/edit-note', requireAuth, async (req, res) => {
+    const { student_id, note_id, new_text } = req.body;
+    try {
+        const studentRes = await pool.query('SELECT notes FROM students WHERE id = $1', [student_id]);
+        if (studentRes.rows.length === 0) return res.status(404).json({ error: 'Student not found' });
 
-  if (!filePath.startsWith(publicDir)) {
-    sendText(response, 403, 'Forbidden');
-    return;
-  }
+        // Parse the notes, find the specific one, and update the text
+        let notesArray = JSON.parse(studentRes.rows[0].notes || '[]');
+        const noteIndex = notesArray.findIndex(n => n.id === note_id);
 
+        if (noteIndex !== -1) {
+            notesArray[noteIndex].text = new_text;
+            notesArray[noteIndex].edited_at = new Date().toISOString(); 
+            
+            // Save it back to the database
+            await pool.query('UPDATE students SET notes = $1 WHERE id = $2', [JSON.stringify(notesArray), student_id]);
+            res.json({ message: 'Note updated successfully' });
+        } else {
+            res.status(404).json({ error: 'Note not found' });
+        }
+    } catch (error) {
+        console.error('Error editing note:', error);
+        res.status(500).json({ error: 'Error editing note' });
+    }
+});
+
+app.patch('/api/students/:id', requireAuth, async (req, res) => {
+  const { status, counselor } = req.body;
   try {
-    const data = await fs.readFile(filePath);
-    const ext = path.extname(filePath).toLowerCase();
-    response.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
-    response.end(data);
-  } catch {
-    if (requestPath !== '/index.html') {
-      const fallback = await fs.readFile(path.join(publicDir, 'index.html'));
-      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end(fallback);
-      return;
-    }
+      if (status) {
+        await pool.query(`UPDATE students SET status = $1, last_contact = NOW() WHERE id = $2`, [status, req.params.id]);
+        
+        const studentRes = await pool.query(`SELECT name, course_of_interest, counselor FROM students WHERE id = $1`, [req.params.id]);
+        const s = studentRes.rows[0];
 
-    sendText(response, 404, 'Not Found');
-  }
-}
+        const checkEnr = await pool.query(`SELECT id FROM enrollments WHERE student_name = $1 AND course_name = $2`, [s.name, s.course_of_interest]);
 
-const server = createServer(async (request, response) => {
-  try {
-    if ((request.url || '').startsWith('/api/')) {
-      await handleApi(request, response);
-      return;
-    }
-
-    await serveStatic(request, response);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unexpected error';
-    sendJson(response, 500, { error: message });
+        if (checkEnr.rows.length > 0) {
+            await pool.query(`UPDATE enrollments SET stage = $1 WHERE id = $2`, [status, checkEnr.rows[0].id]);
+        } else {
+            // NEW: No matter what the stage is, if they aren't on the board, put them on it!
+            await pool.query(
+                `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [createId('enr'), s.name, s.course_of_interest, s.counselor, status, 0, new Date().toISOString().slice(0,10)]
+            );
+        }
+      } else if (counselor) {
+        await pool.query(`UPDATE students SET counselor = $1 WHERE id = $2`, [counselor, req.params.id]);
+        const studentRes = await pool.query(`SELECT name FROM students WHERE id = $1`, [req.params.id]);
+        await pool.query(`UPDATE enrollments SET counselor = $1 WHERE student_name = $2`, [counselor, studentRes.rows[0].name]);
+      }
+      res.json({ message: 'Updated and Synced' });
+  } catch (err) {
+      res.status(500).json({ error: err.message });
   }
 });
 
-await ensureDataFile();
+// ==========================================
+// ADMIN ONLY: DELETE STUDENT
+// ==========================================
+app.delete('/api/students/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+    try {
+        // Delete the student from the database
+        await pool.query('DELETE FROM students WHERE id = $1', [req.params.id]);
+        
+        // Optional: Also clean up their enrollments so they don't leave ghost data on the KanBan board
+        await pool.query('DELETE FROM enrollments WHERE id NOT IN (SELECT id FROM students)');
 
-server.listen(port, host, () => {
-  console.log(`CRM starter app running on http://${host}:${port}`);
+        res.json({ message: 'Student deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting student:', err);
+        res.status(500).json({ error: 'Failed to delete student.' });
+    }
 });
+
+
+app.patch('/api/enrollments/:id', requireAuth, async (req, res) => {
+  await pool.query(`UPDATE enrollments SET stage = $1 WHERE id = $2`, [req.body.stage, req.params.id]);
+  res.json({ message: 'Updated' });
+});
+app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
+  await pool.query(`UPDATE tasks SET completed = $1 WHERE id = $2`, [req.body.completed, req.params.id]);
+  res.json({ message: 'Updated' });
+});
+
+// --- FALLBACK ---
+app.get(/.*/, (req, res) => { res.sendFile(path.join(__dirname, 'public', 'index.html')); });
+app.listen(PORT, () => console.log(`Secure CRM running on port ${PORT}`));
