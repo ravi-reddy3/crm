@@ -280,8 +280,8 @@ app.post('/api/students', requireAuth, async (req, res) => {
     
     // 1. Insert into Tracker
     await pool.query(
-      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [studentId, b.name, b.course_of_interest, b.email, b.phone, status, b.source, owner, currency(b.expected_fee), formatToday(), b.background, b.notes]
+      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes, education_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [studentId, b.name, b.course_of_interest, b.email, b.phone, status, b.source, owner, currency(b.expected_fee), formatToday(), b.background, b.notes, b.education_level || '']
     );
 
     // 2. NEW: Instantly sync to the Kanban Pipeline Board!
@@ -302,9 +302,11 @@ app.post('/api/students/import', requireAuth, async (req, res) => {
     for (const s of students) {
       if (s.name && s.course_of_interest) {
         const owner = req.user.role === 'counselor' ? req.user.username : (s.counselor || 'Unassigned');
+        
+        // NEW: Updated query to save education_level from the spreadsheet
         await pool.query(
-          `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-          [createId('stu'), s.name, s.course_of_interest, s.email, s.phone, s.status || 'new', s.source, owner, currency(s.expected_fee), formatToday(), s.background, s.notes]
+          `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes, education_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          [createId('stu'), s.name, s.course_of_interest, s.email, s.phone, s.status || 'new', s.source, owner, currency(s.expected_fee), formatToday(), s.background, s.notes, s.education_level || '']
         );
         count++;
       }
@@ -328,10 +330,10 @@ app.post('/api/enrollments', requireAuth, async (req, res) => {
       [createId('enr'), b.student_name, b.course_name, owner, currentStage, currency(b.fee_collected), b.batch_start_date || formatToday()]
     );
 
-    // 2. Reverse-sync into Student Tracker (Now capturing email and phone!)
+    // 2. Reverse-sync into Student Tracker (Now capturing education!)
     await pool.query(
-      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [createId('stu'), b.student_name, b.course_name, b.email || '', b.phone || '', currentStage, 'Manual Enrollment', owner, currency(b.fee_collected), formatToday()]
+      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, education_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [createId('stu'), b.student_name, b.course_name, b.email || '', b.phone || '', currentStage, 'Manual Enrollment', owner, currency(b.fee_collected), formatToday(), b.education_level || '']
     );
 
     await logActivity('enrollment', `${b.student_name} was enrolled`, `Managed by ${owner}`);

@@ -180,6 +180,7 @@ function renderStudentsView() {
                 <span style="color:var(--teal); font-size: 0.8rem; line-height: 1.2;">${escapeHtml(s.email || 'No email')}</span>
                 <span style="color:var(--muted); font-size: 0.8rem; line-height: 1.2;">${escapeHtml(s.phone || 'No phone')}</span>
                 <strong style="margin-top: 6px; font-size: 0.85rem; color: var(--text);">${escapeHtml(s.course_of_interest)}</strong>
+                <span style="color:var(--gold); font-size: 0.75rem; margin-top: 2px;">🎓 ${escapeHtml(s.education_level || 'No Education Info')}</span>
               </div>
             </td>
             
@@ -229,6 +230,13 @@ function renderStudentsView() {
           <input name="course_of_interest" placeholder="Course" required>
           <input name="email" placeholder="Email">
           <input name="phone" placeholder="Phone">
+          <select name="education_level">
+            <option value="">Select Education Level (Optional)</option>
+            <option value="High School">High School</option>
+            <option value="Undergraduate">Undergraduate</option>
+            <option value="Postgraduate">Postgraduate</option>
+            <option value="Working Professional">Working Professional</option>
+          </select>
           <input name="expected_fee" type="number" placeholder="Expected Fee">
           ${counselorInput}
           <button type="submit">Add Student</button>
@@ -369,6 +377,13 @@ function renderEnrollmentsView() {
         <input name="course_name" placeholder="Course" required>
         <input name="email" type="email" placeholder="Email Address">
         <input name="phone" type="tel" placeholder="Mobile Number">
+        <select name="education_level">
+          <option value="">Select Education Level (Optional)</option>
+          <option value="High School">High School</option>
+          <option value="Undergraduate">Undergraduate</option>
+          <option value="Postgraduate">Postgraduate</option>
+          <option value="Working Professional">Working Professional</option>
+        </select>
         ${counselorInput}
         <select name="stage" required>
           ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${val === 'enrolled' ? 'selected' : ''}>${lbl}</option>`).join('')}
@@ -535,9 +550,16 @@ viewRoot.addEventListener('submit', async (e) => {
       const students = rows.map(r => {
         const norm = Object.entries(r).map(([k, v]) => [k.trim().toLowerCase(), v]);
         const getF = (aliases) => { const m = norm.find(([k]) => aliases.includes(k)); return m ? String(m[1]).trim() : ''; };
+        
         return {
-          name: getF(['name', 'student name']), course_of_interest: getF(['course']), email: getF(['email']),
-          phone: getF(['phone', 'mobile']), counselor: getF(['counselor', 'owner'])
+          name: getF(['name', 'student name']), 
+          course_of_interest: getF(['course']), 
+          email: getF(['email']),
+          phone: getF(['phone', 'mobile']), 
+          counselor: getF(['counselor', 'owner']),
+          
+          // NEW: Tell the CRM to look for these column headers in Excel!
+          education_level: getF(['education level', 'education', 'degree']) 
         };
       }).filter(s => s.name && s.course_of_interest);
       
