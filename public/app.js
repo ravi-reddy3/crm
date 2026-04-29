@@ -118,6 +118,7 @@ function renderStaffDropdown(fieldName, placeholder) {
   return `<select name="${fieldName}" required><option value="">${placeholder}</option>${options}</select>`;
 }
 
+// Inside renderActivityFeed() in app.js
 function renderActivityFeed() {
   if (!state.crm?.activities.length) return '<div class="empty-panel">No activity yet.</div>';
   
@@ -136,15 +137,15 @@ function renderActivityFeed() {
     </article>
   `).join('');
 
-  // Pagination Logic
   const totalPages = Math.ceil(state.crm.activitiesTotal / 6) || 1;
   const currentPage = state.crm.activityPage || 1;
 
+  // NEW: Added 'btn-activity-page' class to these specific buttons
   const paginationHtml = `
     <div class="pagination">
-      <button type="button" class="btn-page" data-page="${currentPage - 1}" ${currentPage <= 1 ? 'disabled' : ''}>&larr; Prev</button>
+      <button type="button" class="btn-page btn-activity-page" data-page="${currentPage - 1}" ${currentPage <= 1 ? 'disabled' : ''}>&larr; Prev</button>
       <span class="page-info">Page ${currentPage} of ${totalPages}</span>
-      <button type="button" class="btn-page" data-page="${currentPage + 1}" ${currentPage >= totalPages ? 'disabled' : ''}>Next &rarr;</button>
+      <button type="button" class="btn-page btn-activity-page" data-page="${currentPage + 1}" ${currentPage >= totalPages ? 'disabled' : ''}>Next &rarr;</button>
     </div>
   `;
 
@@ -155,7 +156,19 @@ function renderHomeView() {
   return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Admissions Snapshot</h3></div><div class="summary-grid">${state.crm.dashboard.leadsByStatus.map(e => `<article class="summary-card"><span>${escapeHtml(e.status.replace('-', ' '))}</span><strong>${escapeHtml(e.count)}</strong></article>`).join('')}</div></section></div><div class="right-stack"><section class="card section-card"><div class="section-head"><h3>Recent Updates</h3></div><div class="activity-feed">${renderActivityFeed()}</div></section></div></section>`;
 }
 
-// Function to handle sorting state
+// 1. Core API Request Logic
+async function loadCRM() { 
+  try { 
+    const searchQuery = encodeURIComponent(state.search || '');
+    const url = `/api/crm?page=${state.studentsPage || 1}&sortKey=${state.sortKey}&sortOrder=${state.sortOrder}&search=${searchQuery}&statusFilter=${state.statusFilter}`;
+    
+    state.crm = await request(url); 
+    state.staff = await request('/api/staff');
+    renderApp(); 
+  } catch (err) { showToast(err.message, true); } 
+}
+
+// 2. Global Handlers for Sorting and Filtering
 window.setSort = function(key) {
   if (state.sortKey === key) {
     state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
@@ -163,31 +176,31 @@ window.setSort = function(key) {
     state.sortKey = key;
     state.sortOrder = 'asc';
   }
-  renderView(); 
+  state.studentsPage = 1; 
+  loadCRM(); 
 };
 
-function renderStudentsView() {
-  let students = state.crm.students.filter(s => 
-    (state.statusFilter === 'all' || s.status === state.statusFilter) && 
-    `${s.name} ${s.course_of_interest}`.toLowerCase().includes(state.search.toLowerCase())
-  );
+window.setStageFilter = function(stage) {
+  state.statusFilter = stage;
+  state.studentsPage = 1; 
+  loadCRM();
+};
 
-  // 1. Sorting Logic
-  students.sort((a, b) => {
-    let valA = a[state.sortKey] || '';
-    let valB = b[state.sortKey] || '';
-    if (typeof valA === 'string') valA = valA.toLowerCase();
-    if (typeof valB === 'string') valB = valB.toLowerCase();
-    if (valA < valB) return state.sortOrder === 'asc' ? -1 : 1;
-    if (valA > valB) return state.sortOrder === 'asc' ? 1 : -1;
-    return 0;
-  });
+window.changeStudentPage = async function (newPage) {
+  state.studentsPage = newPage;
+  await loadCRM();
+};
+
+// 3. The Complete Student View Layout
+function renderStudentsView() {
+  const students = state.crm.students || [];
+  const totalRecords = state.crm.studentsTotal || 0;
+  const currentPage = state.crm.studentsPage || 1;
+  const totalPages = Math.ceil(totalRecords / 10) || 1;
 
   const sortIcon = (key) => state.sortKey === key ? (state.sortOrder === 'asc' ? ' 🔼' : ' 🔽') : '';
 
-  // 2. Generate Rows
   const rows = students.map(s => {
-    // Parse notes to get the call count
     let notesArr = [];
     try { if (s.notes) notesArr = JSON.parse(s.notes); } catch(e) { notesArr = []; }
     const callCount = notesArr.length;
@@ -224,7 +237,6 @@ function renderStudentsView() {
       </div>
 
       <div style="flex: 1.2; color: var(--muted);">${escapeHtml(s.counselor)}</div>
-
       <div style="flex: 1.2; color: var(--muted);">${escapeHtml(formatDate(s.last_contact))}</div>
 
       <div style="flex: 2.5; display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
@@ -240,19 +252,34 @@ function renderStudentsView() {
     </div>
   `}).join('');
 
+  const paginationHtml = `
+    <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; padding-top: 15px; border-top: 1px solid var(--line);">
+      <button class="btn-page" onclick="changeStudentPage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>&larr; Previous</button>
+      <span style="color: var(--muted); font-size: 0.85rem;">Page ${currentPage} of ${totalPages} (${totalRecords} total)</span>
+      <button class="btn-page" onclick="changeStudentPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>Next &rarr;</button>
+    </div>
+  `;
+
   return `
     <section class="card section-card">
       <div class="section-head" style="margin-bottom: 24px;">
         <h3 style="font-size: 1.8rem;">Student Tracker</h3>
         <div class="action-bar">
+          
+          <select onchange="setStageFilter(this.value)" style="background: var(--bg-accent); border-radius: 10px; padding: 10.5px; width: auto; cursor: pointer; border: 1px solid var(--line-strong);">
+            <option value="all" ${state.statusFilter === 'all' ? 'selected' : ''}>All Stages</option>
+            ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${state.statusFilter === val ? 'selected' : ''}>${lbl}</option>`).join('')}
+          </select>
+
           <input id="studentSearch" type="search" placeholder="Search..." value="${escapeHtml(state.search)}" 
                  style="background: var(--bg-accent); width: 240px; border-radius: 10px; padding: 10px;">
+                 
           <button onclick="document.getElementById('addStudentModal').style.display='flex'" style="background: var(--accent); color: #000; font-weight: bold;">+ Add Inquiry</button>
         </div>
       </div>
 
-      <div class="table-header" style="display: flex; padding-bottom: 12px; color: var(--muted); font-size: 0.85rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; gap: 20px;">
-        <div style="flex: 2.5;">Student Info / Background</div>
+      <div class="table-header" style="display: flex; padding-bottom: 12px; color: var(--muted); font-size: 0.85rem; font-weight: bold; text-transform: uppercase; gap: 20px;">
+        <div style="flex: 2.5; cursor: pointer;" onclick="setSort('name')">Student Info ${sortIcon('name')}</div>
         <div style="flex: 2; cursor: pointer;" onclick="setSort('status')">Stage ${sortIcon('status')}</div>
         <div style="flex: 1.2; cursor: pointer;" onclick="setSort('counselor')">Counselor ${sortIcon('counselor')}</div>
         <div style="flex: 1.2; cursor: pointer;" onclick="setSort('last_contact')">Last Contact ${sortIcon('last_contact')}</div>
@@ -260,25 +287,50 @@ function renderStudentsView() {
       </div>
 
       <div class="rows-container">
-        ${rows || '<div class="empty-panel">No students found matching your search.</div>'}
+        ${rows || '<div class="empty-panel">No students found matching your filters.</div>'}
       </div>
+
+      ${paginationHtml}
     </section>
+
+    <div id="addStudentModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card forms-card">
+        <div class="section-head">
+          <h3>Add New Inquiry</h3>
+          <button type="button" class="btn-close" onclick="document.getElementById('addStudentModal').style.display='none'">✕</button>
+        </div>
+        <form id="studentForm" class="mini-form">
+          <input name="name" placeholder="Full Name" required>
+          <input name="course_of_interest" placeholder="Course Name" required>
+          <input name="email" type="email" placeholder="Email Address">
+          <input name="phone" type="tel" placeholder="Phone Number">
+          <input name="education_level" placeholder="Education (e.g. B.Tech)">
+          <button type="submit">Save Inquiry</button>
+        </form>
+      </div>
+    </div>
   `;
 }
 
+// 4. Safely debounced search handler
+let searchTimeout;
 viewRoot.addEventListener('input', (e) => { 
   if (e.target.id === 'studentSearch') { 
     state.search = e.target.value; 
-    renderView(); // Re-renders the rows
     
-    // Immediately fix focus
-    const searchBox = document.getElementById('studentSearch');
-    if (searchBox) {
-      searchBox.focus();
-      // Move cursor to the end
-      const length = searchBox.value.length;
-      searchBox.setSelectionRange(length, length);
-    }
+    clearTimeout(searchTimeout);
+    
+    searchTimeout = setTimeout(async () => {
+      state.studentsPage = 1; 
+      await loadCRM(); 
+      
+      const searchBox = document.getElementById('studentSearch');
+      if (searchBox) {
+        searchBox.focus();
+        const length = searchBox.value.length;
+        searchBox.setSelectionRange(length, length);
+      }
+    }, 400);
   } 
 });
 
@@ -472,14 +524,6 @@ function updatePageMeta() {
 
 function renderApp() { updatePageMeta(); renderMetrics(); renderView(); }
 
-async function loadCRM() { 
-  try { 
-    state.crm = await request('/api/crm'); 
-    state.staff = await request('/api/staff'); // Fetch the dropdown data
-    renderApp(); 
-  } catch (err) { showToast(err.message, true); } 
-}
-
 navList.addEventListener('click', (e) => {
   const link = e.target.closest('[data-route]');
   if (link) { e.preventDefault(); state.route = link.dataset.route; window.history.pushState({}, '', link.href); renderApp(); }
@@ -554,13 +598,11 @@ viewRoot.addEventListener('submit', async (e) => {
 heroDate.textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
 checkAuth();
 
-// --- UPDATE YOUR CLICK LISTENER IN app.js ---
-
 viewRoot.addEventListener('click', async (e) => {
-  // ... (Keep your existing pagination logic here) ...
-  const pageBtn = e.target.closest('.btn-page');
-  if (pageBtn && !pageBtn.disabled) {
-    const newPage = parseInt(pageBtn.dataset.page);
+  // FIXED: Only target the specific activity buttons, not the student ones
+  const actPageBtn = e.target.closest('.btn-activity-page');
+  if (actPageBtn && !actPageBtn.disabled) {
+    const newPage = parseInt(actPageBtn.dataset.page);
     try {
       const data = await request(`/api/activities?page=${newPage}`);
       state.crm.activities = data.activities;
@@ -570,16 +612,13 @@ viewRoot.addEventListener('click', async (e) => {
     } catch (err) { showToast(err.message, true); }
   }
 
-  // --- ADD THIS NEW DELETE LOGIC ---
+  // --- DELETE LOGIC ---
   const deleteBtn = e.target.closest('.user-delete-btn');
   if (deleteBtn) {
-    // Confirm before deleting
     if (!confirm('Are you sure you want to permanently delete this staff account?')) return;
-    
     try {
       await request(`/api/users/${deleteBtn.dataset.id}`, { method: 'DELETE' });
       showToast('Staff account deleted.');
-      // FIXED: Use loadCRM() instead of renderApp() so it fetches the fresh staff list!
       await loadCRM();
     } catch (err) {
       showToast(err.message, true);

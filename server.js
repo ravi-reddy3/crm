@@ -222,52 +222,107 @@ async function processMetaLead(leadId) {
     }
 }
 
-// --- CRM DATA ROUTES ---
 app.get('/api/crm', requireAuth, async (req, res) => {
   try {
-    let studentQuery = 'SELECT * FROM students ORDER BY last_contact DESC';
-    let enrollQuery = 'SELECT * FROM enrollments ORDER BY batch_start_date DESC';
-    let taskQuery = 'SELECT * FROM tasks ORDER BY due_date ASC';
-    let activityQuery = 'SELECT * FROM activities ORDER BY created_at DESC LIMIT 6 OFFSET 0';
-    let activityCountQuery = 'SELECT COUNT(*) FROM activities';
-    const params = [];
+    const page = parseInt(req.query.page) || 1;
+    const limit = 10;
+    const offset = (page - 1) * limit;
 
+    // 1. Get all parameters from the frontend
+    const sortKey = req.query.sortKey || 'last_contact';
+    const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
+    const search = req.query.search || '';
+    const statusFilter = req.query.statusFilter || 'all';
+
+    const validColumns = {
+      'status': 'status',
+      'counselor': 'counselor',
+      'last_contact': 'last_contact',
+      'name': 'name' 
+    };
+    const orderBy = validColumns[sortKey] || 'last_contact';
+
+    // 2. Build dynamic queries
+    let studentQuery = `SELECT * FROM students`;
+    let countQuery = `SELECT COUNT(*) FROM students`;
+    let enrollQuery = `SELECT * FROM enrollments`; 
+    
+    let studentParams = [];
+    let generalParams = [];
+    let whereClauses = [];
+
+    // Filter by Counselor Role
     if (req.user.role === 'counselor') {
-      studentQuery = 'SELECT * FROM students WHERE counselor = $1 ORDER BY last_contact DESC';
-      enrollQuery = 'SELECT * FROM enrollments WHERE counselor = $1 ORDER BY batch_start_date DESC';
-      taskQuery = 'SELECT * FROM tasks WHERE owner = $1 ORDER BY due_date ASC';
-      params.push(req.user.username);
+      whereClauses.push(`counselor = $${whereClauses.length + 1}`);
+      studentParams.push(req.user.username);
+      generalParams.push(req.user.username);
     }
 
-    const [studentsRes, enrollmentsRes, tasksRes, activitiesRes, activitiesCountRes] = await Promise.all([
-      pool.query(studentQuery, params),
-      pool.query(enrollQuery, params),
-      pool.query(taskQuery, params),
-      pool.query(activityQuery),
-      pool.query(activityCountQuery)
+    // Filter by Search Input (Now includes course_of_interest)
+    if (search) {
+      whereClauses.push(`(name ILIKE $${whereClauses.length + 1} OR email ILIKE $${whereClauses.length + 1} OR phone ILIKE $${whereClauses.length + 1} OR course_of_interest ILIKE $${whereClauses.length + 1})`);
+      studentParams.push(`%${search}%`);
+      generalParams.push(`%${search}%`);
+    }
+
+    // Filter by Stage/Status
+    if (statusFilter !== 'all') {
+      whereClauses.push(`status = $${whereClauses.length + 1}`);
+      studentParams.push(statusFilter);
+      generalParams.push(statusFilter);
+    }
+
+    // Apply WHERE clauses
+    const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    
+    studentQuery = `${studentQuery} ${whereString} ORDER BY ${orderBy} ${sortOrder} LIMIT $${studentParams.length + 1} OFFSET $${studentParams.length + 2}`;
+    studentParams.push(limit, offset);
+    
+    countQuery = `${countQuery} ${whereString}`;
+    if (req.user.role === 'counselor') {
+      enrollQuery = `${enrollQuery} WHERE counselor = $1`;
+    }
+
+    // 3. Fetch all required data
+    const [studentsRes, countRes, enrollmentsRes, tasksRes, activitiesRes, actCountRes] = await Promise.all([
+      pool.query(studentQuery, studentParams),
+      pool.query(countQuery, generalParams),
+      pool.query(enrollQuery, req.user.role === 'counselor' ? [req.user.username] : []),
+      pool.query('SELECT * FROM tasks'),
+      pool.query('SELECT * FROM activities ORDER BY created_at DESC LIMIT 6'),
+      pool.query('SELECT COUNT(*) FROM activities') 
     ]);
 
-    const data = { 
+    const totalStudents = parseInt(countRes.rows[0].count);
+    const activeEnrollments = enrollmentsRes.rows.filter(e => e.stage !== 'dropped' && e.stage !== 'enrolled');
+    const wonEnrollments = enrollmentsRes.rows.filter(e => e.stage === 'enrolled').length;
+
+    // 4. Send response
+    res.json({ 
+      dashboard: {
+        totalContacts: totalStudents, 
+        activeDeals: activeEnrollments.length,
+        pipelineValue: activeEnrollments.reduce((sum, e) => sum + Number(e.fee_collected || 0), 0),
+        wonDeals: wonEnrollments,
+        conversionRate: Math.round((wonEnrollments / (enrollmentsRes.rows.length || 1)) * 100),
+        // Accurately counts from enrollmentsRes (the full database) instead of the paginated 10
+        leadsByStatus: ['new', 'contacted', 'demo', 'payment-pending', 'enrolled', 'dropped'].map(status => ({ 
+            status, 
+            count: enrollmentsRes.rows.filter(e => e.stage === status).length 
+        }))
+      },
       students: studentsRes.rows, 
+      studentsTotal: totalStudents,
+      studentsPage: page,
+      sortKey: sortKey,
+      sortOrder: sortOrder,
       enrollments: enrollmentsRes.rows, 
       tasks: tasksRes.rows, 
       activities: activitiesRes.rows,
-      activitiesTotal: parseInt(activitiesCountRes.rows[0].count),
-      activityPage: 1
-    };
-    const activeEnrollments = data.enrollments.filter((e) => e.stage !== 'dropped' && e.stage !== 'enrolled');
-    const wonEnrollments = data.enrollments.filter((e) => e.stage === 'enrolled').length;
-
-    const dashboard = {
-      totalContacts: data.students.length,
-      activeDeals: activeEnrollments.length,
-      pipelineValue: activeEnrollments.reduce((sum, e) => sum + Number(e.fee_collected || 0), 0),
-      wonDeals: wonEnrollments,
-      conversionRate: Math.round((wonEnrollments / (data.enrollments.length || 1)) * 100),
-      leadsByStatus: ['new', 'contacted', 'attended-demo', 'enrolled'].map((status) => ({ status, count: data.students.filter((s) => s.status === status).length }))
-    };
-
-    res.json({ dashboard, ...data, currentUser: req.user });
+      activitiesTotal: parseInt(actCountRes.rows[0].count),
+      activityPage: 1, 
+      currentUser: req.user 
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -476,13 +531,20 @@ app.patch('/api/students/:id', requireAuth, async (req, res) => {
 // ==========================================
 app.delete('/api/students/:id', requireAuth, requireRole(['admin']), async (req, res) => {
     try {
-        // Delete the student from the database
-        await pool.query('DELETE FROM students WHERE id = $1', [req.params.id]);
+        // 1. Get the student's details BEFORE deleting them
+        const studentRes = await pool.query('SELECT name, course_of_interest FROM students WHERE id = $1', [req.params.id]);
         
-        // Optional: Also clean up their enrollments so they don't leave ghost data on the KanBan board
-        await pool.query('DELETE FROM enrollments WHERE id NOT IN (SELECT id FROM students)');
+        if (studentRes.rows.length > 0) {
+            const s = studentRes.rows[0];
+            
+            // 2. Safely delete the student from the tracker
+            await pool.query('DELETE FROM students WHERE id = $1', [req.params.id]);
+            
+            // 3. Accurately delete ONLY their specific card from the Kanban board
+            await pool.query('DELETE FROM enrollments WHERE student_name = $1 AND course_name = $2', [s.name, s.course_of_interest]);
+        }
 
-        res.json({ message: 'Student deleted successfully.' });
+        res.json({ message: 'Student and related enrollment deleted safely.' });
     } catch (err) {
         console.error('Error deleting student:', err);
         res.status(500).json({ error: 'Failed to delete student.' });
