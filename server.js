@@ -411,29 +411,32 @@ app.post('/api/add-note', requireAuth, async (req, res) => {
 // ==========================================
 // 2. NEW EDIT NOTE ROUTE (Fixes #2)
 // ==========================================
+// UPDATED: Added security check to verify note authorship
 app.patch('/api/edit-note', requireAuth, async (req, res) => {
     const { student_id, note_id, new_text } = req.body;
     try {
         const studentRes = await pool.query('SELECT notes FROM students WHERE id = $1', [student_id]);
         if (studentRes.rows.length === 0) return res.status(404).json({ error: 'Student not found' });
 
-        // Parse the notes, find the specific one, and update the text
         let notesArray = JSON.parse(studentRes.rows[0].notes || '[]');
         const noteIndex = notesArray.findIndex(n => n.id === note_id);
 
         if (noteIndex !== -1) {
+            // AUTH CHECK: Verify the logged-in user is the original author
+            if (notesArray[noteIndex].author !== req.user.username) {
+                return res.status(403).json({ error: 'You can only edit your own notes.' });
+            }
+
             notesArray[noteIndex].text = new_text;
             notesArray[noteIndex].edited_at = new Date().toISOString(); 
             
-            // Save it back to the database
             await pool.query('UPDATE students SET notes = $1 WHERE id = $2', [JSON.stringify(notesArray), student_id]);
             res.json({ message: 'Note updated successfully' });
         } else {
             res.status(404).json({ error: 'Note not found' });
         }
     } catch (error) {
-        console.error('Error editing note:', error);
-        res.status(500).json({ error: 'Error editing note' });
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 

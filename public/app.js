@@ -4,7 +4,15 @@ const appView = document.getElementById('appView');
 const navPermissions = document.getElementById('navPermissions');
 
 const state = {
-  crm: null, staff: [], route: getRouteFromPath(window.location.pathname), search: '', statusFilter: 'all', spreadsheetModule: null
+  crm: null, 
+  staff: [], 
+  route: getRouteFromPath(window.location.pathname), 
+  search: '', 
+  statusFilter: 'all', 
+  spreadsheetModule: null,
+  // Add these two lines:
+  sortKey: 'last_contact', 
+  sortOrder: 'desc'
 };
 
 const metricGrid = document.getElementById('metricGrid');
@@ -147,158 +155,132 @@ function renderHomeView() {
   return `<section class="content-grid"><div class="left-stack"><section class="card section-card"><div class="section-head"><h3>Admissions Snapshot</h3></div><div class="summary-grid">${state.crm.dashboard.leadsByStatus.map(e => `<article class="summary-card"><span>${escapeHtml(e.status.replace('-', ' '))}</span><strong>${escapeHtml(e.count)}</strong></article>`).join('')}</div></section></div><div class="right-stack"><section class="card section-card"><div class="section-head"><h3>Recent Updates</h3></div><div class="activity-feed">${renderActivityFeed()}</div></section></div></section>`;
 }
 
-// --- REPLACE EXISTING renderStudentsView IN app.js ---
+// Function to handle sorting state
+window.setSort = function(key) {
+  if (state.sortKey === key) {
+    state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    state.sortKey = key;
+    state.sortOrder = 'asc';
+  }
+  renderView(); 
+};
+
 function renderStudentsView() {
-  // 1. Filter students based on search and status
-  const students = state.crm.students.filter(s => (state.statusFilter === 'all' || s.status === state.statusFilter) && `${s.name} ${s.course_of_interest}`.toLowerCase().includes(state.search.toLowerCase()));
-  
-  const counselorInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('counselor', 'Assign to Counselor...');
+  let students = state.crm.students.filter(s => 
+    (state.statusFilter === 'all' || s.status === state.statusFilter) && 
+    `${s.name} ${s.course_of_interest}`.toLowerCase().includes(state.search.toLowerCase())
+  );
 
-  // 2. Generate the Table
-  const table = `<div class="table-wrap">
-    <table style="width: 100%;">
-      <thead>
-        <tr>
-          <th style="width: 240px;">Student Info</th>
-          <th>Stage</th>
-          <th>Counselor</th>
-          <th>Last Contact</th>
-          <th style="text-align: right;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${students.map(s => {
-          let notesArr = [];
-          try { if (s.notes) notesArr = JSON.parse(s.notes); } catch(e) {}
-          const callCount = notesArr.length;
+  // 1. Sorting Logic
+  students.sort((a, b) => {
+    let valA = a[state.sortKey] || '';
+    let valB = b[state.sortKey] || '';
+    if (typeof valA === 'string') valA = valA.toLowerCase();
+    if (typeof valB === 'string') valB = valB.toLowerCase();
+    if (valA < valB) return state.sortOrder === 'asc' ? -1 : 1;
+    if (valA > valB) return state.sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
 
-          return `
-          <tr>
-            <td style="width: 240px; vertical-align: top;">
-              <div style="display: flex; flex-direction: column; gap: 2px;">
-                <strong style="font-size: 1.05rem; color: var(--text);">${escapeHtml(s.name)}</strong>
-                <span style="color:var(--teal); font-size: 0.8rem; line-height: 1.2;">${escapeHtml(s.email || 'No email')}</span>
-                <span style="color:var(--muted); font-size: 0.8rem; line-height: 1.2;">${escapeHtml(s.phone || 'No phone')}</span>
-                <strong style="margin-top: 6px; font-size: 0.85rem; color: var(--text);">${escapeHtml(s.course_of_interest)}</strong>
-                <span style="color:var(--gold); font-size: 0.75rem; margin-top: 2px;">🎓 ${escapeHtml(s.education_level || 'No Education Info')}</span>
-              </div>
-            </td>
-            
-            <td style="vertical-align: top;">
-              <select class="inline-select student-select" data-id="${escapeHtml(s.id)}">
-                ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${s.status === val ? 'selected' : ''}>${lbl}</option>`).join('')}
-              </select>
-            </td>
-            
-            <td style="vertical-align: top;">
-              <select class="inline-select counselor-select" data-id="${escapeHtml(s.id)}">
-                <option value="Unassigned" ${s.counselor === 'Unassigned' ? 'selected' : ''}>Unassigned</option>
-                ${state.staff.map(staff => `<option value="${escapeHtml(staff.username)}" ${s.counselor === staff.username ? 'selected' : ''}>${escapeHtml(staff.username)} (${escapeHtml(staff.role)})</option>`).join('')}
-              </select>
-            </td>
-            
-            <td style="vertical-align: top;">${escapeHtml(formatDate(s.last_contact))}</td>
-            
-            <td style="text-align: right; min-width: 170px; vertical-align: top;">
-              <div style="margin-bottom: 8px; font-size: 0.75rem; color: var(--gold); font-weight: bold;">
-                📞 Called: ${callCount} times
-              </div>
-              <div style="display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap;">
-                  <button onclick="openNoteModal('${escapeHtml(s.id)}', '${escapeHtml(s.name)}')" class="btn-small">💬 +Note</button>
-                  <button onclick="openHistoryModal('${escapeHtml(s.id)}')" class="btn-small" style="background: transparent; border-color: var(--line-strong);">📜 History</button>
-                  ${currentUser.role === 'admin' ? 
-                    `<button onclick="deleteStudent('${escapeHtml(s.id)}')" class="btn-small" style="background: transparent; border-color: #ef4444; color: #ef4444;">🗑️ Delete</button>` 
-                    : ''}
-              </div>
-            </td>
-          </tr>
-        `}).join('')}
-      </tbody>
-    </table>
-  </div>`;
+  const sortIcon = (key) => state.sortKey === key ? (state.sortOrder === 'asc' ? ' 🔼' : ' 🔽') : '';
 
-  // 3. Generate the Modals
-  const modals = `
-    <div id="addStudentModal" class="modal-overlay" style="display: none;">
-      <div class="modal-content card forms-card">
-        <div class="section-head">
-          <h3>Add Inquiry</h3>
-          <button type="button" class="btn-close" onclick="document.getElementById('addStudentModal').style.display='none'">✕</button>
+  // 2. Generate Rows
+  const rows = students.map(s => {
+    // Parse notes to get the call count
+    let notesArr = [];
+    try { if (s.notes) notesArr = JSON.parse(s.notes); } catch(e) { notesArr = []; }
+    const callCount = notesArr.length;
+
+    return `
+    <div class="table-row" style="display: flex; align-items: center; padding: 16px 0; border-top: 1px solid var(--line); gap: 20px;">
+      
+      <div style="flex: 2.5; min-width: 220px;">
+        <strong style="display: block; font-size: 1.1rem; color: var(--text);">${escapeHtml(s.name)}</strong>
+        
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0;">
+          <span style="color: var(--accent); font-size: 0.75rem; font-weight: bold; background: rgba(74, 222, 128, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(74, 222, 128, 0.2);">
+            📚 ${escapeHtml(s.course_of_interest || 'General')}
+          </span>
+          
+          ${s.education_level ? `
+          <span style="color: var(--gold); font-size: 0.75rem; font-weight: bold; background: rgba(251, 191, 36, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.2);">
+            🎓 ${escapeHtml(s.education_level)}
+          </span>` : ''}
+
+          <span style="color: #60a5fa; font-size: 0.75rem; font-weight: bold; background: rgba(96, 165, 250, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(96, 165, 250, 0.2);">
+            📞 Calls: ${callCount}
+          </span>
         </div>
-        <form id="studentForm" class="mini-form">
-          <input name="name" placeholder="Student name" required>
-          <input name="course_of_interest" placeholder="Course" required>
-          <input name="email" placeholder="Email">
-          <input name="phone" placeholder="Phone">
-          <select name="education_level">
-            <option value="">Select Education Level (Optional)</option>
-            <option value="High School">High School</option>
-            <option value="Undergraduate">Undergraduate</option>
-            <option value="Postgraduate">Postgraduate</option>
-            <option value="Working Professional">Working Professional</option>
-          </select>
-          <input name="expected_fee" type="number" placeholder="Expected Fee">
-          ${counselorInput}
-          <button type="submit">Add Student</button>
-        </form>
+
+        <span style="display: block; color: var(--teal); font-size: 0.8rem; margin-top: 2px;">${escapeHtml(s.email || 'No email')}</span>
+        <span style="display: block; color: var(--muted); font-size: 0.8rem;">${escapeHtml(s.phone || 'No phone')}</span>
+      </div>
+
+      <div style="flex: 2;">
+        <select class="inline-select student-select" data-id="${escapeHtml(s.id)}" style="background: var(--bg-accent); border-radius: 10px; width: 100%;">
+          ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${s.status === val ? 'selected' : ''}>${lbl}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="flex: 1.2; color: var(--muted);">${escapeHtml(s.counselor)}</div>
+
+      <div style="flex: 1.2; color: var(--muted);">${escapeHtml(formatDate(s.last_contact))}</div>
+
+      <div style="flex: 2.5; display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+        <button onclick="openNoteModal('${escapeHtml(s.id)}', '${escapeHtml(s.name)}')" class="btn-small" style="background: var(--paper-strong); padding: 6px 12px;">💬 +Note</button>
+        <button onclick="openHistoryModal('${escapeHtml(s.id)}')" class="btn-small" style="background: var(--paper-strong); padding: 6px 12px;">📜 History</button>
+        
+        ${currentUser.role === 'admin' ? `
+          <button onclick="deleteStudent('${escapeHtml(s.id)}')" 
+                  style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 6px 10px; border-radius: 8px; cursor: pointer;" 
+                  title="Delete Student">🗑️</button>
+        ` : ''}
       </div>
     </div>
+  `}).join('');
 
-    <div id="importModal" class="modal-overlay" style="display: none;">
-      <div class="modal-content card forms-card">
-        <div class="section-head">
-          <h3>Import Spreadsheet</h3>
-          <button type="button" class="btn-close" onclick="document.getElementById('importModal').style.display='none'">✕</button>
-        </div>
-        <form id="importForm" class="mini-form">
-          <input id="importFile" type="file" accept=".xlsx,.xls,.csv" required>
-          <button type="submit">Import</button>
-        </form>
-      </div>
-    </div>
-
-    <div id="noteModal" class="modal-overlay" style="display: none;">
-      <div class="modal-content card forms-card">
-        <div class="section-head">
-          <h3 id="noteModalTitle">Add Note</h3>
-          <button type="button" class="btn-close" onclick="document.getElementById('noteModal').style.display='none'">✕</button>
-        </div>
-        <form id="noteForm" class="mini-form">
-          <input type="hidden" id="noteStudentId" name="student_id">
-          <textarea name="comment" rows="4" placeholder="Type counselor note here..." required></textarea>
-          <button type="submit">Save Note</button>
-        </form>
-      </div>
-    </div>
-
-    <div id="historyModal" class="modal-overlay" style="display: none;">
-      <div class="modal-content card forms-card" style="max-height: 85vh; overflow-y: auto;">
-        <div class="section-head">
-          <h3 id="historyModalTitle">Call History</h3>
-          <button type="button" class="btn-close" onclick="document.getElementById('historyModal').style.display='none'">✕</button>
-        </div>
-        <div id="historyContent" style="display: flex; flex-direction: column; gap: 12px;">
-          </div>
-      </div>
-    </div>
-  `;
-
-  // 4. THE MISSING RETURN STATEMENT! This prints the HTML to the screen.
   return `
-    <section class="card section-card" style="grid-column: 1 / -1;">
-      <div class="section-head" style="align-items: center;">
-        <h3>Student Tracker</h3>
+    <section class="card section-card">
+      <div class="section-head" style="margin-bottom: 24px;">
+        <h3 style="font-size: 1.8rem;">Student Tracker</h3>
         <div class="action-bar">
-          <input id="studentSearch" type="search" placeholder="Search..." value="${escapeHtml(state.search)}" style="max-width: 200px;">
-          <button onclick="document.getElementById('addStudentModal').style.display='flex'">+ Add Inquiry</button>
-          <button onclick="document.getElementById('importModal').style.display='flex'" style="background: var(--paper-strong); color: var(--text);">📁 Import</button>
+          <input id="studentSearch" type="search" placeholder="Search..." value="${escapeHtml(state.search)}" 
+                 style="background: var(--bg-accent); width: 240px; border-radius: 10px; padding: 10px;">
+          <button onclick="document.getElementById('addStudentModal').style.display='flex'" style="background: var(--accent); color: #000; font-weight: bold;">+ Add Inquiry</button>
         </div>
       </div>
-      ${table}
+
+      <div class="table-header" style="display: flex; padding-bottom: 12px; color: var(--muted); font-size: 0.85rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; gap: 20px;">
+        <div style="flex: 2.5;">Student Info / Background</div>
+        <div style="flex: 2; cursor: pointer;" onclick="setSort('status')">Stage ${sortIcon('status')}</div>
+        <div style="flex: 1.2; cursor: pointer;" onclick="setSort('counselor')">Counselor ${sortIcon('counselor')}</div>
+        <div style="flex: 1.2; cursor: pointer;" onclick="setSort('last_contact')">Last Contact ${sortIcon('last_contact')}</div>
+        <div style="flex: 2.5; text-align: right;">Actions</div>
+      </div>
+
+      <div class="rows-container">
+        ${rows || '<div class="empty-panel">No students found matching your search.</div>'}
+      </div>
     </section>
-    ${modals}
   `;
 }
+
+viewRoot.addEventListener('input', (e) => { 
+  if (e.target.id === 'studentSearch') { 
+    state.search = e.target.value; 
+    renderView(); // Re-renders the rows
+    
+    // Immediately fix focus
+    const searchBox = document.getElementById('studentSearch');
+    if (searchBox) {
+      searchBox.focus();
+      // Move cursor to the end
+      const length = searchBox.value.length;
+      searchBox.setSelectionRange(length, length);
+    }
+  } 
+});
 
 // Attach the global open function so the inline buttons can find it
 window.openNoteModal = function(studentId, studentName) {
@@ -309,7 +291,6 @@ window.openNoteModal = function(studentId, studentName) {
 
 // --- REPLACE EXISTING renderEnrollmentsView IN app.js ---
 function renderEnrollmentsView() {
-  
   const board = Object.keys(stageLabels).map(stage => {
     const stageEnrollments = state.crm.enrollments.filter(e => e.stage === stage);
     
@@ -325,12 +306,14 @@ function renderEnrollmentsView() {
       
       <div class="pipeline-list scrollable-list" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 4px; flex-grow: 1;">
         ${stageEnrollments.map(e => `
-          
           <article class="deal-card" style="padding: 10px; border-radius: 8px; background: var(--paper-strong); box-shadow: 0 2px 4px rgba(0,0,0,0.12);">
             
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
               <div style="line-height: 1.2;">
-                <strong style="font-size: 0.9rem; color: var(--text);">${escapeHtml(e.student_name)}</strong><br>
+                <a href="javascript:void(0)" onclick="openPipelineDetails('${escapeHtml(e.student_name)}')" 
+                   style="color: var(--accent); text-decoration: none; font-weight: bold; font-size: 0.95rem; display: block; margin-bottom: 3px;">
+                   ${escapeHtml(e.student_name)}
+                </a>
                 <span style="font-size: 0.75rem; color: var(--muted);">${escapeHtml(e.course_name)}</span>
               </div>
               <span style="font-size: 0.7rem; color: var(--accent); font-weight: bold; background: rgba(74, 222, 128, 0.1); padding: 2px 4px; border-radius: 4px;">
@@ -353,7 +336,6 @@ function renderEnrollmentsView() {
   
   const counselorInput = currentUser.role === 'counselor' ? '' : renderStaffDropdown('counselor', 'Assign to Counselor...');
 
-  // --- REPLACE THIS SECTION IN renderEnrollmentsView ---
   return `
   <section class="card section-card" style="grid-column: 1 / -1; padding-bottom: 10px; min-width: 0; width: 100%; overflow: hidden;">
     <div class="section-head" style="align-items: center; margin-bottom: 12px;">
@@ -505,7 +487,7 @@ navList.addEventListener('click', (e) => {
 
 window.addEventListener('popstate', () => { state.route = getRouteFromPath(window.location.pathname); renderApp(); });
 
-viewRoot.addEventListener('input', (e) => { if (e.target.id === 'studentSearch') { state.search = e.target.value; renderView(); } });
+// viewRoot.addEventListener('input', (e) => { if (e.target.id === 'studentSearch') { state.search = e.target.value; renderView(); } });
 
 // --- DATA ENTRY HANDLERS ---
 async function submitDataForm(e, url) {
@@ -535,7 +517,7 @@ viewRoot.addEventListener('submit', async (e) => {
   if (e.target.id === 'taskForm') await submitDataForm(e, '/api/tasks');
   if (e.target.id === 'newUserForm') await submitDataForm(e, '/api/users');
   // Add listener for Note form
-  if (e.target.id === 'noteForm') await submitDataForm(e, '/api/add-note'); 
+  // if (e.target.id === 'noteForm') await submitDataForm(e, '/api/add-note'); 
   
   if (e.target.id === 'importForm') {
       // ... keep your existing import file logic exactly the same ...
@@ -609,38 +591,72 @@ viewRoot.addEventListener('click', async (e) => {
 // NEW FRONTEND LOGIC FOR VIEWING & EDITING NOTES
 // ==========================================
 
+// 1. The Bridge Function
+window.openPipelineDetails = function(studentName) {
+  // We search the master student list by name
+  const student = state.crm.students.find(s => s.name === studentName);
+  
+  if (student) {
+    window.openHistoryModal(student.id);
+  } else {
+    // Helpful for debugging if names don't match exactly
+    console.error("Lookup failed for name:", studentName);
+    showToast("Profile not found. Ensure the name matches the tracker exactly.", true);
+  }
+};
+
+// 2. The Updated Modal Logic
+// UPDATED: Now includes authorship check for the Edit button
 window.openHistoryModal = function(studentId) {
     const student = state.crm.students.find(s => s.id === studentId);
-    if (!student) return;
-
-    document.getElementById('historyModalTitle').innerText = 'Call History: ' + escapeHtml(student.name);
+    const titleEl = document.getElementById('historyModalTitle');
     const contentDiv = document.getElementById('historyContent');
 
-    // Parse the saved notes
+    if (!student || !titleEl || !contentDiv) return;
+
+    titleEl.innerText = 'Student Profile: ' + escapeHtml(student.name);
+
     let notesArr = [];
     try { if (student.notes) notesArr = JSON.parse(student.notes); } catch(e) {}
 
+    const contactHeader = `
+      <div style="background: var(--paper-strong); padding: 16px; border-radius: 12px; border: 1px solid var(--line-strong); margin-bottom: 10px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem;">
+          <div><span style="color: var(--muted);">Email:</span> <br> ${escapeHtml(student.email || 'N/A')}</div>
+          <div><span style="color: var(--muted);">Phone:</span> <br> ${escapeHtml(student.phone || 'N/A')}</div>
+          <div><span style="color: var(--muted);">Education:</span> <br> ${escapeHtml(student.education_level || 'N/A')}</div>
+          <div><span style="color: var(--muted);">Total Calls:</span> <br> <strong style="color: var(--gold);">${notesArr.length}</strong></div>
+        </div>
+      </div>
+      <h4 style="font-size: 1rem; margin: 15px 0 10px;">Conversation History</h4>
+    `;
+
     if (notesArr.length === 0) {
-        contentDiv.innerHTML = '<div class="empty-panel">No calls or notes added yet.</div>';
+        contentDiv.innerHTML = contactHeader + '<div class="empty-panel">No notes recorded.</div>';
     } else {
-        // Reverse the array so the newest notes show up at the top
-        contentDiv.innerHTML = notesArr.slice().reverse().map(n => `
-            <div class="activity-item" style="border: 1px solid var(--line); padding: 14px; border-radius: 12px; background: var(--bg);">
+        contentDiv.innerHTML = contactHeader + notesArr.slice().reverse().map(n => {
+            // AUTH CHECK: Only the person who wrote the note can edit it
+            const isAuthor = n.author === currentUser.username;
+
+            return `
+            <div class="activity-item" style="border: 1px solid var(--line); padding: 14px; border-radius: 12px; background: var(--bg); margin-bottom: 10px;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                     <strong style="color: var(--accent);">👤 ${escapeHtml(n.author)}</strong>
                     <small style="color: var(--muted);">${new Date(n.date).toLocaleString()}</small>
                 </div>
                 
                 <p id="view-note-${n.id}" style="margin: 0; font-size: 0.95rem; line-height: 1.5;">${escapeHtml(n.text)}</p>
-                
-                <textarea id="edit-note-${n.id}" style="display:none; width: 100%; margin-bottom: 8px;" rows="3">${escapeHtml(n.text)}</textarea>
+                <textarea id="edit-note-${n.id}" style="display:none; width: 100%; margin-bottom: 8px; background: var(--paper-strong); color: white; border: 1px solid var(--accent);" rows="3">${escapeHtml(n.text)}</textarea>
                 
                 <div style="margin-top: 12px; text-align: right;">
-                    <button id="btn-edit-${n.id}" onclick="toggleEditNote('${n.id}')" class="btn-small" style="background: transparent; color: var(--gold);">✏️ Edit Note</button>
-                    <button id="btn-save-${n.id}" onclick="saveNoteEdit('${student.id}', '${n.id}')" class="btn-small" style="display:none; background: var(--accent-strong); color: #000;">💾 Save Changes</button>
+                    ${isAuthor ? `
+                        <button id="btn-edit-${n.id}" onclick="toggleEditNote('${n.id}')" class="btn-small" style="background: transparent; color: var(--gold); border-color: var(--gold);">✏️ Edit</button>
+                        <button id="btn-save-${n.id}" onclick="saveNoteEdit('${student.id}', '${n.id}')" class="btn-small" style="display:none; background: var(--accent-strong); color: #000;">💾 Save Changes</button>
+                        <button id="btn-cancel-${n.id}" onclick="openHistoryModal('${student.id}')" class="btn-small" style="display:none; background: transparent; color: var(--muted); border-color: var(--line); margin-left: 5px;">Cancel</button>
+                    ` : `<span style="color: var(--muted); font-size: 0.75rem;">Read-only (Owner: ${escapeHtml(n.author)})</span>`}
                 </div>
             </div>
-        `).join('');
+        `}).join('');
     }
 
     document.getElementById('historyModal').style.display = 'flex';
@@ -720,3 +736,31 @@ window.deleteActivity = async function(activityId) {
         showToast(err.message, true);
     }
 };
+
+// Add this to app.js to handle the globally-located note form
+document.getElementById('noteForm').addEventListener('submit', async (e) => {
+  e.preventDefault(); // This stops the URL from changing and the page from reloading
+  
+  const formData = new FormData(e.target);
+  const payload = Object.fromEntries(formData);
+
+  try {
+    await request('/api/add-note', { 
+      method: 'POST', 
+      body: JSON.stringify(payload) 
+    });
+    
+    e.target.reset(); 
+    document.getElementById('noteModal').style.display = 'none'; // Close modal
+    showToast('Note saved successfully');
+    
+    await loadCRM(); // Refresh data in background
+    
+    // If the history modal is also open, refresh it to show the new note
+    if (document.getElementById('historyModal').style.display === 'flex') {
+      openHistoryModal(payload.student_id);
+    }
+  } catch (err) {
+    showToast(err.message, true);
+  }
+});
