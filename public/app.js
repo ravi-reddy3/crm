@@ -236,7 +236,12 @@ function renderStudentsView() {
         </select>
       </div>
 
-      <div style="flex: 1.2; color: var(--muted);">${escapeHtml(s.counselor)}</div>
+      <div style="flex: 1.2;">
+        <select class="inline-select counselor-select" data-id="${escapeHtml(s.id)}" style="background: var(--bg-accent); border-radius: 10px; width: 100%; border: 1px solid var(--line-strong); color: var(--text);">
+          <option value="Unassigned" ${!s.counselor || s.counselor === 'Unassigned' ? 'selected' : ''}>Unassigned</option>
+          ${state.staff.map(staff => `<option value="${escapeHtml(staff.username)}" ${s.counselor === staff.username ? 'selected' : ''}>${escapeHtml(staff.username)}</option>`).join('')}
+        </select>
+      </div>
       <div style="flex: 1.2; color: var(--muted);">${escapeHtml(formatDate(s.last_contact))}</div>
 
       <div style="flex: 2.5; display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
