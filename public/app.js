@@ -191,7 +191,6 @@ window.changeStudentPage = async function (newPage) {
   await loadCRM();
 };
 
-// 3. The Complete Student View Layout
 function renderStudentsView() {
   const students = state.crm.students || [];
   const totalRecords = state.crm.studentsTotal || 0;
@@ -206,7 +205,7 @@ function renderStudentsView() {
     const callCount = notesArr.length;
 
     return `
-    <div class="table-row" style="display: flex; align-items: center; padding: 16px 0; border-top: 1px solid var(--line); gap: 20px;">
+    <div class="table-row" style="display: flex; align-items: center; padding: 16px 0; border-top: 1px solid var(--line); gap: 15px;">
       
       <div style="flex: 2.5; min-width: 220px;">
         <strong style="display: block; font-size: 1.1rem; color: var(--text);">${escapeHtml(s.name)}</strong>
@@ -215,12 +214,10 @@ function renderStudentsView() {
           <span style="color: var(--accent); font-size: 0.75rem; font-weight: bold; background: rgba(74, 222, 128, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(74, 222, 128, 0.2);">
             📚 ${escapeHtml(s.course_of_interest || 'General')}
           </span>
-          
           ${s.education_level ? `
           <span style="color: var(--gold); font-size: 0.75rem; font-weight: bold; background: rgba(251, 191, 36, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.2);">
             🎓 ${escapeHtml(s.education_level)}
           </span>` : ''}
-
           <span style="color: #60a5fa; font-size: 0.75rem; font-weight: bold; background: rgba(96, 165, 250, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(96, 165, 250, 0.2);">
             📞 Calls: ${callCount}
           </span>
@@ -230,28 +227,36 @@ function renderStudentsView() {
         <span style="display: block; color: var(--muted); font-size: 0.8rem;">${escapeHtml(s.phone || 'No phone')}</span>
       </div>
 
-      <div style="flex: 2;">
+      <!-- Stage Column (Slightly narrower flex value) -->
+      <div style="flex: 1.5;">
         <select class="inline-select student-select" data-id="${escapeHtml(s.id)}" style="background: var(--bg-accent); border-radius: 10px; width: 100%;">
           ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${s.status === val ? 'selected' : ''}>${lbl}</option>`).join('')}
         </select>
       </div>
 
-      <div style="flex: 1.2;">
+      <!-- Counselor Column -->
+      <div style="flex: 1;">
         <select class="inline-select counselor-select" data-id="${escapeHtml(s.id)}" style="background: var(--bg-accent); border-radius: 10px; width: 100%; border: 1px solid var(--line-strong); color: var(--text);">
           <option value="Unassigned" ${!s.counselor || s.counselor === 'Unassigned' ? 'selected' : ''}>Unassigned</option>
           ${state.staff.map(staff => `<option value="${escapeHtml(staff.username)}" ${s.counselor === staff.username ? 'selected' : ''}>${escapeHtml(staff.username)}</option>`).join('')}
         </select>
       </div>
-      <div style="flex: 1.2; color: var(--muted);">${escapeHtml(formatDate(s.last_contact))}</div>
 
-      <div style="flex: 2.5; display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
-        <button onclick="openNoteModal('${escapeHtml(s.id)}', '${escapeHtml(s.name)}')" class="btn-small" style="background: var(--paper-strong); padding: 6px 12px;">💬 +Note</button>
-        <button onclick="openHistoryModal('${escapeHtml(s.id)}')" class="btn-small" style="background: var(--paper-strong); padding: 6px 12px;">📜 History</button>
-        
+      <!-- NEW: Date Added Column -->
+      <div style="flex: 1; color: var(--text); font-size: 0.85rem;">
+        ${escapeHtml(formatDate(s.created_at))}
+      </div>
+
+      <!-- Last Contact Column -->
+      <div style="flex: 1; color: var(--muted); font-size: 0.85rem;">
+        ${escapeHtml(formatDate(s.last_contact))}
+      </div>
+
+      <div style="flex: 2; display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+        <button onclick="openNoteModal('${escapeHtml(s.id)}', '${escapeHtml(s.name)}')" class="btn-small" style="background: var(--paper-strong); padding: 6px 10px;">💬 +Note</button>
+        <button onclick="openHistoryModal('${escapeHtml(s.id)}')" class="btn-small" style="background: var(--paper-strong); padding: 6px 10px;">📜 History</button>
         ${currentUser.role === 'admin' ? `
-          <button onclick="deleteStudent('${escapeHtml(s.id)}')" 
-                  style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 6px 10px; border-radius: 8px; cursor: pointer;" 
-                  title="Delete Student">🗑️</button>
+          <button onclick="deleteStudent('${escapeHtml(s.id)}')" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 6px 10px; border-radius: 8px; cursor: pointer;" title="Delete Student">🗑️</button>
         ` : ''}
       </div>
     </div>
@@ -270,25 +275,23 @@ function renderStudentsView() {
       <div class="section-head" style="margin-bottom: 24px;">
         <h3 style="font-size: 1.8rem;">Student Tracker</h3>
         <div class="action-bar">
-          
           <select onchange="setStageFilter(this.value)" style="background: var(--bg-accent); border-radius: 10px; padding: 10.5px; width: auto; cursor: pointer; border: 1px solid var(--line-strong);">
             <option value="all" ${state.statusFilter === 'all' ? 'selected' : ''}>All Stages</option>
             ${Object.entries(stageLabels).map(([val, lbl]) => `<option value="${val}" ${state.statusFilter === val ? 'selected' : ''}>${lbl}</option>`).join('')}
           </select>
-
-          <input id="studentSearch" type="search" placeholder="Search..." value="${escapeHtml(state.search)}" 
-                 style="background: var(--bg-accent); width: 240px; border-radius: 10px; padding: 10px;">
-                 
+          <input id="studentSearch" type="search" placeholder="Search..." value="${escapeHtml(state.search)}" style="background: var(--bg-accent); width: 240px; border-radius: 10px; padding: 10px;">
           <button onclick="document.getElementById('addStudentModal').style.display='flex'" style="background: var(--accent); color: #000; font-weight: bold;">+ Add Inquiry</button>
         </div>
       </div>
 
-      <div class="table-header" style="display: flex; padding-bottom: 12px; color: var(--muted); font-size: 0.85rem; font-weight: bold; text-transform: uppercase; gap: 20px;">
+      <!-- Updated Header layout to match the rows -->
+      <div class="table-header" style="display: flex; padding-bottom: 12px; color: var(--muted); font-size: 0.75rem; font-weight: bold; text-transform: uppercase; gap: 15px;">
         <div style="flex: 2.5; cursor: pointer;" onclick="setSort('name')">Student Info ${sortIcon('name')}</div>
-        <div style="flex: 2; cursor: pointer;" onclick="setSort('status')">Stage ${sortIcon('status')}</div>
-        <div style="flex: 1.2; cursor: pointer;" onclick="setSort('counselor')">Counselor ${sortIcon('counselor')}</div>
-        <div style="flex: 1.2; cursor: pointer;" onclick="setSort('last_contact')">Last Contact ${sortIcon('last_contact')}</div>
-        <div style="flex: 2.5; text-align: right;">Actions</div>
+        <div style="flex: 1.5; cursor: pointer;" onclick="setSort('status')">Stage ${sortIcon('status')}</div>
+        <div style="flex: 1; cursor: pointer;" onclick="setSort('counselor')">Counselor ${sortIcon('counselor')}</div>
+        <div style="flex: 1; cursor: pointer; color: var(--text);" onclick="setSort('created_at')">Added ${sortIcon('created_at')}</div>
+        <div style="flex: 1; cursor: pointer;" onclick="setSort('last_contact')">Contacted ${sortIcon('last_contact')}</div>
+        <div style="flex: 2; text-align: right;">Actions</div>
       </div>
 
       <div class="rows-container">
@@ -298,6 +301,7 @@ function renderStudentsView() {
       ${paginationHtml}
     </section>
 
+    <!-- Modal Form -->
     <div id="addStudentModal" class="modal-overlay" style="display: none;">
       <div class="modal-content card forms-card">
         <div class="section-head">

@@ -190,9 +190,9 @@ async function processMetaLead(leadId) {
 
         // Insert into the students table
         await pool.query(
-            `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [id, name, course, email, phone, 'new', 'Meta Ads', 'Unassigned', 0, today]
+            `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, created_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [id, name, course, email, phone, 'new', 'Meta Ads', 'Unassigned', 0, today, today]
         );
 
         // Insert into the students table
@@ -238,6 +238,7 @@ app.get('/api/crm', requireAuth, async (req, res) => {
       'status': 'status',
       'counselor': 'counselor',
       'last_contact': 'last_contact',
+      'created_at': 'created_at', // <-- ADDED THIS LINE
       'name': 'name' 
     };
     const orderBy = validColumns[sortKey] || 'last_contact';
@@ -335,8 +336,8 @@ app.post('/api/students', requireAuth, async (req, res) => {
     
     // 1. Insert into Tracker
     await pool.query(
-      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes, education_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [studentId, b.name, b.course_of_interest, b.email, b.phone, status, b.source, owner, currency(b.expected_fee), formatToday(), b.background, b.notes, b.education_level || '']
+      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes, education_level, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [studentId, b.name, b.course_of_interest, b.email, b.phone, status, b.source, owner, currency(b.expected_fee), formatToday(), b.background, b.notes, b.education_level || '', formatToday()]
     );
 
     // 2. NEW: Instantly sync to the Kanban Pipeline Board!
@@ -361,8 +362,8 @@ app.post('/api/students/import', requireAuth, async (req, res) => {
         
         // 1. Insert into Student Tracker (Inquiries)
         await pool.query(
-          `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes, education_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-          [createId('stu'), s.name, s.course_of_interest, s.email, s.phone, defaultStage, s.source || 'Excel Import', owner, currency(s.expected_fee), formatToday(), s.background, s.notes, s.education_level || '']
+          `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, background, notes, education_level, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [createId('stu'), s.name, s.course_of_interest, s.email, s.phone, defaultStage, s.source || 'Excel Import', owner, currency(s.expected_fee), formatToday(), s.background, s.notes, s.education_level || '', formatToday()]
         );
 
         // 2. NEW: Automatically drop the imported leads onto the Pipeline Board!
@@ -391,8 +392,8 @@ app.post('/api/enrollments', requireAuth, async (req, res) => {
     const currentStage = b.stage || 'enrolled'; 
     
     await pool.query(
-      `INSERT INTO enrollments (id, student_name, course_name, counselor, stage, fee_collected, batch_start_date) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [createId('enr'), b.student_name, b.course_name, owner, currentStage, currency(b.fee_collected), b.batch_start_date || formatToday()]
+      `INSERT INTO students (id, name, course_of_interest, email, phone, status, source, counselor, expected_fee, last_contact, education_level, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [createId('stu'), b.student_name, b.course_name, b.email || '', b.phone || '', currentStage, 'Manual Enrollment', owner, currency(b.fee_collected), formatToday(), b.education_level || '', formatToday()]
     );
 
     // 2. Reverse-sync into Student Tracker (Now capturing education!)
